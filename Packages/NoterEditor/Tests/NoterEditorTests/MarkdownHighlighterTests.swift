@@ -69,4 +69,23 @@ func range(of substring: String, in text: String) -> NSRange {
         #expect(MarkdownHighlighter.spans(in: "") == [])
         #expect(MarkdownHighlighter.spans(in: "just words\n") == [])
     }
+
+    @Test func crlfLineEndingsDoNotLeakIntoSpans() {
+        // Blockquote: the CR must not leak into the span range.
+        let quote = "> quoted line\r\n"
+        let quoteSpans = MarkdownHighlighter.spans(in: quote)
+        let blockquote = quoteSpans.first { $0.kind == .blockquote }
+        #expect((quote as NSString).substring(with: blockquote!.range) == "> quoted line")
+        #expect(blockquote?.range.length == ("> quoted line" as NSString).length)
+
+        // Fenced code block: no codeBlock span substring may contain a CR.
+        let code = "```\r\ncode here\r\n```\r\n"
+        let codeSpans = MarkdownHighlighter.spans(in: code)
+        let codeBlockSpans = codeSpans.filter { $0.kind == .codeBlock }
+        for span in codeBlockSpans {
+            #expect(!(code as NSString).substring(with: span.range).contains("\r"))
+        }
+        // Middle content span is the code line, CR-free.
+        #expect(codeBlockSpans.contains { (code as NSString).substring(with: $0.range) == "code here" })
+    }
 }

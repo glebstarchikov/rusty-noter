@@ -42,6 +42,10 @@ public enum MarkdownHighlighter {
                ns.substring(with: NSRange(location: NSMaxRange(content) - 1, length: 1)) == "\n" {
                 content.length -= 1
             }
+            if content.length > 0,
+               ns.substring(with: NSRange(location: NSMaxRange(content) - 1, length: 1)) == "\r" {
+                content.length -= 1
+            }
             let line = ns.substring(with: content)
 
             if line.hasPrefix("```") {
