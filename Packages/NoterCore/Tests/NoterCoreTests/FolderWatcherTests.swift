@@ -27,13 +27,12 @@ import Foundation
         let modifyBatch = await iterator.next()
         #expect(modifyBatch?.contains { $0.hasSuffix("watched.md") } == true)
 
-        // DELETE. Brief's documented flake: FSEvents sometimes coalesces
-        // modify+delete, so accept the path in EITHER batch.
+        // DELETE. The modify batch was already flushed and consumed above, so
+        // the delete event necessarily lands in a FRESH batch (coalescing can
+        // only merge into a batch not yet delivered); fetch it with the same
+        // collect-until-match loop as CREATE.
         try FileManager.default.removeItem(at: url)
-        var deleteBatch = modifyBatch
-        if deleteBatch?.contains(where: { $0.hasSuffix("watched.md") }) != true {
-            deleteBatch = await nextBatch(containing: "watched.md", from: &iterator)
-        }
+        let deleteBatch = await nextBatch(containing: "watched.md", from: &iterator)
         #expect(deleteBatch?.contains { $0.hasSuffix("watched.md") } == true)
     }
 
