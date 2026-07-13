@@ -12,16 +12,29 @@ public enum FrontmatterError: Error, Equatable {
 public enum FrontmatterCodec {
 
     public static func parse(_ raw: String) throws(FrontmatterError) -> (metadata: NoteMetadata, body: String) {
-        // Normalize a missing trailing newline so a bare closing fence at EOF still matches.
-        let text = raw.hasSuffix("\n") ? raw : raw + "\n"
-        guard text.hasPrefix("---\n") else { throw .missingFrontmatter }
-        let afterOpen = text.index(text.startIndex, offsetBy: 4)
-        guard let closeRange = text.range(of: "\n---\n", range: afterOpen..<text.endIndex)
-        else { throw .missingFrontmatter }
-        let yaml = String(text[afterOpen..<closeRange.lowerBound])
-        var body = String(text[closeRange.upperBound...])
-        // Serializer emits exactly one blank line between fence and body; strip it on parse.
-        if body.hasPrefix("\n") { body.removeFirst() }
+        // Fences are located in the original string — never pad `raw`, or the
+        // padding leaks into the body and mutates user content on round-trip.
+        guard raw.hasPrefix("---\n") else { throw .missingFrontmatter }
+        let afterOpen = raw.index(raw.startIndex, offsetBy: 4)
+
+        let yaml: String
+        let body: String
+        if let closeRange = raw.range(of: "\n---\n", range: afterOpen..<raw.endIndex) {
+            yaml = String(raw[afterOpen..<closeRange.lowerBound])
+            var rest = String(raw[closeRange.upperBound...])
+            // Serializer emits exactly one blank line between fence and body; strip it on parse.
+            if rest.hasPrefix("\n") { rest.removeFirst() }
+            body = rest
+        } else if raw.hasSuffix("\n---"),
+                  let fenceNewline = raw.index(raw.endIndex, offsetBy: -4, limitedBy: afterOpen) {
+            // Bare closing fence at EOF (no trailing newline): frontmatter only, empty body.
+            // `limitedBy` rejects the degenerate "---\n---" where the suffix
+            // would overlap the opening fence.
+            yaml = String(raw[afterOpen..<fenceNewline])
+            body = ""
+        } else {
+            throw .missingFrontmatter
+        }
 
         let parsed: RawFrontmatter
         do {
@@ -65,6 +78,7 @@ public enum FrontmatterCodec {
     /// Quotes a scalar only when YAML would misread it bare.
     private static func yamlScalar(_ s: String) -> String {
         let needsQuoting = s.isEmpty
+            || s.lowercased() == "null" || s == "~" // bare YAML null tokens decode as nil
             || s.rangeOfCharacter(from: CharacterSet(charactersIn: ":#[]{}&*!|>'\"%@`,")) != nil
             || s.hasPrefix(" ") || s.hasSuffix(" ")
             || s.hasPrefix("-")

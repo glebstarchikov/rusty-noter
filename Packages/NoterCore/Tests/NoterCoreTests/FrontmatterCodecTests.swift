@@ -64,6 +64,7 @@ import Foundation
         #expect(raw.contains("tags: []"))
         let parsed = try FrontmatterCodec.parse(raw)
         #expect(parsed.metadata == meta)
+        #expect(parsed.body == "x")
     }
 
     @Test func missingFrontmatterThrows() {
@@ -91,11 +92,38 @@ import Foundation
         #expect(parsed.metadata.title == meta.title)
     }
 
+    @Test func nullLikeTitlesRoundTrip() throws {
+        // Bare "null"/"Null"/"NULL"/"~" are YAML null tokens: unquoted they
+        // decode as nil and the title silently becomes "". Must be quoted.
+        for hostile in ["null", "Null", "NULL", "~"] {
+            var meta = sampleMetadata()
+            meta.title = hostile
+            let raw = FrontmatterCodec.serialize(metadata: meta, body: "")
+            let parsed = try FrontmatterCodec.parse(raw)
+            #expect(parsed.metadata.title == hostile)
+        }
+    }
+
     @Test func bodyContainingTripleDashSurvives() throws {
         let body = "para one\n\n---\n\npara two after a thematic break\n"
         let raw = FrontmatterCodec.serialize(metadata: sampleMetadata(), body: body)
         let parsed = try FrontmatterCodec.parse(raw)
         #expect(parsed.body == body)
+    }
+
+    @Test func bodyWithoutTrailingNewlineRoundTripsExactly() throws {
+        // parse(serialize(b)) must return b byte-for-byte, even with no trailing newline.
+        let raw = FrontmatterCodec.serialize(metadata: sampleMetadata(), body: "x")
+        let parsed = try FrontmatterCodec.parse(raw)
+        #expect(parsed.body == "x")
+    }
+
+    @Test func bareClosingFenceAtEOFParsesWithEmptyBody() throws {
+        // File ends exactly with "\n---" (no trailing newline, no body).
+        let raw = "---\ntitle: T\ntype: note\ncreated: 2026-07-13T10:00:00+02:00\nupdated: 2026-07-13T10:00:00+02:00\ntags: []\n---"
+        let parsed = try FrontmatterCodec.parse(raw)
+        #expect(parsed.metadata.title == "T")
+        #expect(parsed.body == "")
     }
 
     @Test func unknownFrontmatterKeysAreTolerated() throws {
