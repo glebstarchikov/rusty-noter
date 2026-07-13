@@ -10,10 +10,13 @@ struct EditorContainerView: View {
     @State private var draftTitle: String = ""
     @State private var lastLoadedPath: String?
     @State private var lastSavedBody: String = ""
+    @State private var lastSavedTitle: String = ""
     @State private var changedOnDisk = false
     @State private var saveTask: Task<Void, Never>?
 
-    private var isDirty: Bool { draftBody != lastSavedBody }
+    private var isDirty: Bool {
+        draftBody != lastSavedBody || draftTitle != lastSavedTitle
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,10 +46,12 @@ struct EditorContainerView: View {
         .background(TokenColor.bg)
         .onAppear { loadNote() }
         .onChange(of: note.relativePath) { loadNote() }
-        .onChange(of: note.body) {
-            // Snapshot arrived from the coordinator (external or echo).
+        .onChange(of: note) {
+            // A fresh snapshot for the note we're editing arrived from the
+            // coordinator (external edit or our own echo). Compare every field,
+            // not just body, so a title-only external change is also caught.
             guard note.relativePath == lastLoadedPath else { return }
-            if note.body != draftBody {
+            if note.body != draftBody || note.metadata.title != draftTitle {
                 if isDirty { changedOnDisk = true } else { reloadFromModel() }
             }
         }
@@ -57,14 +62,16 @@ struct EditorContainerView: View {
         draftBody = note.body
         draftTitle = note.metadata.title
         lastSavedBody = note.body
+        lastSavedTitle = note.metadata.title
         lastLoadedPath = note.relativePath
         changedOnDisk = false
     }
 
     private func reloadFromModel() {
         draftBody = note.body
-        lastSavedBody = note.body
         draftTitle = note.metadata.title
+        lastSavedBody = note.body
+        lastSavedTitle = note.metadata.title
         changedOnDisk = false
     }
 
@@ -75,6 +82,11 @@ struct EditorContainerView: View {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             if let saved = try? await model.coordinator?.updateBody(path, body: body) {
+                // Guard against an A->B switch leaving A's debounced save in
+                // flight: its completion must not clobber B's dirty bookkeeping.
+                // The write to A's own file is correct and intended; only the
+                // lastSaved bookkeeping is note-specific.
+                guard path == lastLoadedPath else { return }
                 lastSavedBody = saved.body
             }
         }
@@ -83,6 +95,11 @@ struct EditorContainerView: View {
     private func commitTitle() {
         let path = note.relativePath
         let title = draftTitle
-        Task { _ = try? await model.coordinator?.updateTitle(path, title: title) }
+        Task {
+            if let saved = try? await model.coordinator?.updateTitle(path, title: title) {
+                guard path == lastLoadedPath else { return }
+                lastSavedTitle = saved.metadata.title
+            }
+        }
     }
 }
