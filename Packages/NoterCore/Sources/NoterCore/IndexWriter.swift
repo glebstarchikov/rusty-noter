@@ -1,7 +1,7 @@
 import Foundation
 
 public enum IndexWriter {
-    public static func render(notes: [Note]) -> String {
+    public static func render(notes: [Note], timeZone: TimeZone = .current) -> String {
         let sorted = notes.sorted { $0.metadata.updated > $1.metadata.updated }
         var lines: [String] = [
             "# Notes Index",
@@ -12,7 +12,7 @@ public enum IndexWriter {
             "|---|---|---|---|---|"
         ]
         for note in sorted {
-            let day = Slug.dayString(note.metadata.updated)
+            let day = Slug.dayString(note.metadata.updated, timeZone: timeZone)
             let type = note.metadata.status == .recording
                 ? "\(note.metadata.type.rawValue) (recording)"
                 : note.metadata.type.rawValue
@@ -22,9 +22,9 @@ public enum IndexWriter {
         return lines.joined(separator: "\n") + "\n"
     }
 
-    public static func write(notes: [Note], to vault: Vault) throws {
+    public static func write(notes: [Note], to vault: Vault, timeZone: TimeZone = .current) throws {
         let url = vault.root.appendingPathComponent("INDEX.md")
-        try render(notes: notes).write(to: url, atomically: true, encoding: .utf8)
+        try render(notes: notes, timeZone: timeZone).write(to: url, atomically: true, encoding: .utf8)
     }
 
     private static func escapeCell(_ s: String) -> String {

@@ -3,6 +3,8 @@ import Foundation
 @testable import NoterCore
 
 @Suite struct IndexWriterTests {
+    let tz = TimeZone(secondsFromGMT: 7200)!
+
     func note(_ path: String, _ title: String, updated: String,
               type: NoteType = .note, tags: [String] = [],
               status: RecordingStatus? = nil) -> Note {
@@ -22,7 +24,7 @@ import Foundation
                  type: .meeting, tags: ["work"], status: .recording),
             note("new.md", "New note", updated: "2026-07-12T08:00:00+02:00")
         ]
-        let rendered = IndexWriter.render(notes: notes)
+        let rendered = IndexWriter.render(notes: notes, timeZone: tz)
         let expected = """
         # Notes Index
 
@@ -39,14 +41,14 @@ import Foundation
 
     @Test func escapesPipesInTitles() {
         let notes = [note("a.md", "Either | Or", updated: "2026-07-13T09:00:00+02:00")]
-        let rendered = IndexWriter.render(notes: notes)
+        let rendered = IndexWriter.render(notes: notes, timeZone: tz)
         #expect(rendered.contains(#"Either \| Or"#))
     }
 
     @Test func writeIsAtomicAndLandsAtRoot() throws {
         let vault = try makeTempVault()
         try IndexWriter.write(notes: [note("a.md", "A", updated: "2026-07-13T09:00:00+02:00")],
-                              to: vault)
+                              to: vault, timeZone: tz)
         let onDisk = try String(contentsOf: vault.root.appendingPathComponent("INDEX.md"),
                                 encoding: .utf8)
         #expect(onDisk.hasPrefix("# Notes Index"))
