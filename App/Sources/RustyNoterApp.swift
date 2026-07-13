@@ -11,10 +11,11 @@ struct RustyNoterApp: App {
                 if model.needsWelcome {
                     Text("Vault folder not found. Settings arrive in a later task.")
                         .foregroundStyle(TokenColor.secondary)
+                } else if let path = model.selectedPath ?? model.notes.first?.relativePath,
+                          let note = model.notes.first(where: { $0.relativePath == path }) {
+                    EditorContainerView(note: note)
                 } else {
-                    Text(model.notes.isEmpty
-                         ? "No notes yet."
-                         : "\(model.notes.count) notes loaded from \(model.vaultPathDisplay)")
+                    Text("No notes yet.")
                         .foregroundStyle(TokenColor.secondary)
                 }
             }

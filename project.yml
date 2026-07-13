@@ -7,6 +7,8 @@ options:
 packages:
   NoterCore:
     path: Packages/NoterCore
+  NoterEditor:
+    path: Packages/NoterEditor
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -22,6 +24,7 @@ targets:
       - App/Resources
     dependencies:
       - package: NoterCore
+      - package: NoterEditor
     info:
       path: App/Info.plist
       properties:

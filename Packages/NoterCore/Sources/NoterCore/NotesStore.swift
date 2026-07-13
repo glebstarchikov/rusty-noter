@@ -57,6 +57,19 @@ public actor NotesStore {
         return note
     }
 
+    public func updateTitle(_ relativePath: String, title: String, now: Date = .now) throws -> Note {
+        guard !unparseablePaths.contains(relativePath) else {
+            throw NotesStoreError.refusingToRewriteUnparseable
+        }
+        guard var note = cache[relativePath] else {
+            throw NotesStoreError.noteNotFound(relativePath)
+        }
+        note.metadata.title = title
+        note.metadata.updated = now
+        try write(note)
+        return note
+    }
+
     public func reloadFromDisk(_ relativePath: String) throws -> Note? {
         guard FileManager.default.fileExists(atPath: vault.noteURL(relativePath).path) else {
             cache[relativePath] = nil

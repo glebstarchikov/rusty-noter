@@ -70,6 +70,14 @@ public actor VaultCoordinator {
         return note
     }
 
+    public func updateTitle(_ relativePath: String, title: String) async throws -> Note {
+        let note = try await store.updateTitle(relativePath, title: title)
+        try? await index.upsert(note)
+        scheduleIndexMd()
+        await publishSnapshot()
+        return note
+    }
+
     public func search(_ query: String) async -> [String] {
         (try? await index.search(query)) ?? []
     }

@@ -135,4 +135,17 @@ import Foundation
         _ = await store.loadAll()
         #expect(await store.note(at: "notes.md.bak.md")?.metadata.title == "notes.md.bak")
     }
+
+    @Test func updateTitleRewritesFrontmatterKeepsFilename() async throws {
+        let vault = try makeTempVault()
+        let store = NotesStore(vault: vault)
+        _ = await store.loadAll()
+        let note = try await store.create(title: "Original")
+        let renamed = try await store.updateTitle(note.relativePath, title: "Better title")
+        #expect(renamed.relativePath == note.relativePath) // filename stable
+        #expect(renamed.metadata.title == "Better title")
+        let onDisk = try FrontmatterCodec.parse(
+            try String(contentsOf: vault.noteURL(note.relativePath), encoding: .utf8))
+        #expect(onDisk.metadata.title == "Better title")
+    }
 }
