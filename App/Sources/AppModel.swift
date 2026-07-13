@@ -1,6 +1,13 @@
 import SwiftUI
 import NoterCore
 
+enum SidebarSelection: Hashable {
+    case all
+    case meetings
+    case tag(String)
+    case folder(String)
+}
+
 @MainActor @Observable
 final class AppModel {
     var notes: [Note] = []
@@ -8,6 +15,8 @@ final class AppModel {
     var searchQuery: String = ""
     var searchHits: [String]? = nil   // nil = no active search
     var needsWelcome = false
+    var sidebarSelection: SidebarSelection = .all
+    var searchFieldFocused = false
 
     private(set) var coordinator: VaultCoordinator?
 
@@ -23,10 +32,32 @@ final class AppModel {
     var vaultPathDisplay: String { vaultURL.path }
 
     var visibleNotes: [Note] {
-        guard let hits = searchHits else { return notes }
+        var filtered: [Note]
+        switch sidebarSelection {
+        case .all:
+            filtered = notes
+        case .meetings:
+            filtered = notes.filter { $0.metadata.type == .meeting }
+        case .tag(let tag):
+            filtered = notes.filter { $0.metadata.tags.contains(tag) }
+        case .folder(let folder):
+            filtered = notes.filter { $0.relativePath.hasPrefix(folder + "/") }
+        }
+        guard let hits = searchHits else { return filtered }
         let order = Dictionary(uniqueKeysWithValues: hits.enumerated().map { ($1, $0) })
-        return notes.filter { order[$0.relativePath] != nil }
+        return filtered.filter { order[$0.relativePath] != nil }
             .sorted { (order[$0.relativePath] ?? 0) < (order[$1.relativePath] ?? 0) }
+    }
+
+    var allTags: [String] {
+        Array(Set(notes.flatMap { $0.metadata.tags })).sorted()
+    }
+
+    var topLevelFolders: [String] {
+        Array(Set(notes.compactMap { note in
+            let parts = note.relativePath.split(separator: "/")
+            return parts.count > 1 ? String(parts[0]) : nil
+        })).sorted()
     }
 
     func bootstrap() async {

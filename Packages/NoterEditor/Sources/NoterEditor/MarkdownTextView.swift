@@ -26,6 +26,8 @@ public struct MarkdownTextView: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.isRichText = false
         textView.allowsUndo = true
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.font = theme.bodyFont
