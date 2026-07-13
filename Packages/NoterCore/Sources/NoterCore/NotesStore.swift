@@ -60,7 +60,14 @@ public actor NotesStore {
             unparseablePaths.remove(relativePath)
             return nil
         }
-        let note = readNote(relativePath)
+        guard let note = readNote(relativePath) else {
+            // Exists but unreadable (e.g. permissions): evict like a vanished file
+            // so a later updateBody reports noteNotFound, not a stale
+            // refusingToRewriteUnparseable.
+            cache[relativePath] = nil
+            unparseablePaths.remove(relativePath)
+            return nil
+        }
         cache[relativePath] = note
         return note
     }
@@ -79,7 +86,11 @@ public actor NotesStore {
 
     private func readNote(_ relativePath: String) -> Note? {
         let url = vault.noteURL(relativePath)
-        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        // Raw bytes first, decoded lossily: nil means ONLY "unreadable/gone".
+        // Non-UTF-8 files are salvaged below (listed, never rewritten thanks to
+        // the refusingToRewriteUnparseable guard) instead of silently hidden.
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let raw = String(decoding: data, as: UTF8.self)
         if let parsed = try? FrontmatterCodec.parse(raw) {
             unparseablePaths.remove(relativePath)
             return Note(relativePath: relativePath, metadata: parsed.metadata, body: parsed.body)
@@ -88,8 +99,8 @@ public actor NotesStore {
         unparseablePaths.insert(relativePath)
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         let mtime = (attrs?[.modificationDate] as? Date) ?? .now
-        let stem = (relativePath as NSString).lastPathComponent
-            .replacingOccurrences(of: ".md", with: "")
+        let stem = ((relativePath as NSString).lastPathComponent as NSString)
+            .deletingPathExtension
         let meta = NoteMetadata(title: stem, created: mtime, updated: mtime)
         return Note(relativePath: relativePath, metadata: meta, body: raw)
     }

@@ -93,4 +93,39 @@ import Foundation
         #expect(await store.wasSelfWrite(path: note.relativePath, within: 2.0))
         #expect(await !store.wasSelfWrite(path: "other.md", within: 2.0))
     }
+
+    @Test func nonUTF8FileIsSalvagedNotHidden() async throws {
+        let vault = try makeTempVault()
+        // "---\n" followed by bytes that are invalid UTF-8 (0xFF, 0xFE, 0xFA).
+        let original = Data([0x2D, 0x2D, 0x2D, 0x0A, 0xFF, 0xFE, 0xFA, 0x0A])
+        let url = vault.noteURL("bad.md")
+        try original.write(to: url)
+        let store = NotesStore(vault: vault)
+        let notes = await store.loadAll()
+        #expect(notes.count == 1)
+        #expect(notes.first?.metadata.title == "bad")
+        #expect(await store.unparseablePaths == ["bad.md"])
+        await #expect(throws: NotesStoreError.refusingToRewriteUnparseable) {
+            _ = try await store.updateBody("bad.md", body: "x")
+        }
+        // Salvage contract: on-disk bytes stay untouched, byte for byte.
+        #expect(try Data(contentsOf: url) == original)
+    }
+
+    @Test func updateBodyOnMissingNoteThrowsNoteNotFound() async throws {
+        let vault = try makeTempVault()
+        let store = NotesStore(vault: vault)
+        _ = await store.loadAll()
+        await #expect(throws: NotesStoreError.noteNotFound("ghost.md")) {
+            _ = try await store.updateBody("ghost.md", body: "x")
+        }
+    }
+
+    @Test func salvageTitleStripsOnlyTrailingExtension() async throws {
+        let vault = try makeTempVault()
+        try writeFile(vault, "notes.md.bak.md", "plain text, no frontmatter\n")
+        let store = NotesStore(vault: vault)
+        _ = await store.loadAll()
+        #expect(await store.note(at: "notes.md.bak.md")?.metadata.title == "notes.md.bak")
+    }
 }
