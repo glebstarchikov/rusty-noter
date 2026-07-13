@@ -11,6 +11,10 @@ public actor VaultCoordinator {
     private let updatesContinuation: AsyncStream<[Note]>.Continuation
     private var processingTask: Task<Void, Never>?
     private var indexMdTask: Task<Void, Never>?
+    /// Monotonic publish counter: a publishSnapshot suspended at `allNotes()`
+    /// that resumes after a newer publish has started drops its now-stale yield,
+    /// so `.bufferingNewest(1)` never holds an out-of-order snapshot.
+    private var publishSeq = 0
 
     public init(vault: Vault, indexDatabasePath: String?,
                 watcherDebounce: TimeInterval = 0.3,
@@ -81,7 +85,7 @@ public actor VaultCoordinator {
         for absolutePath in batch {
             let url = URL(fileURLWithPath: absolutePath)
             guard let rel = vault.relativePath(of: url), vault.isNotePath(rel) else { continue }
-            guard await !store.wasSelfWrite(path: rel, within: 2.0) else { continue }
+            guard await !store.isSelfWriteEcho(rel) else { continue }
             touchedNotes = true
             if let note = try? await store.reloadFromDisk(rel) {
                 try? await index.upsert(note)
@@ -96,7 +100,10 @@ public actor VaultCoordinator {
     }
 
     private func publishSnapshot() async {
+        publishSeq += 1
+        let mySeq = publishSeq
         let all = await store.allNotes().sorted { $0.metadata.updated > $1.metadata.updated }
+        guard mySeq == publishSeq else { return }   // superseded by a newer publish
         updatesContinuation.yield(all)
     }
 

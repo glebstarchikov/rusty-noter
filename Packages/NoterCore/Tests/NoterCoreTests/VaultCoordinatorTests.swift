@@ -83,4 +83,42 @@ import Foundation
             atPath: vault.root.appendingPathComponent("INDEX.md").path))
         await coordinator.stop()
     }
+
+    // Regression proof for content-based echo suppression (spec 5, line ~156:
+    // "path + content-hash window"). An app write followed WELL INSIDE the old
+    // 2s time window by an EXTERNAL write of DIFFERENT content to the same path
+    // must NOT be mistaken for our own echo and dropped: the real edit has to
+    // reach the updates stream and the index.
+    @Test(.timeLimit(.minutes(1)))
+    func externalEditWithinEchoWindowIsNotDropped() async throws {
+        let vault = try makeTempVault()
+        let coordinator = try makeCoordinator(vault)
+        _ = await coordinator.start()
+        try await Task.sleep(for: .milliseconds(500)) // let FSEvents arm
+
+        // Collector drains snapshots until the external body surfaces. Started
+        // before the writes so no snapshot is missed; cancelled after a bounded
+        // wait so a dropped edit fails cleanly instead of hanging to the limit.
+        let updates = coordinator.updates
+        let noteRelPath = try await coordinator.createNote(title: "Race").relativePath
+        let collector = Task { () -> Note? in
+            for await snapshot in updates {
+                if let n = snapshot.first(where: { $0.relativePath == noteRelPath }),
+                   n.body.contains("bravo distinctive") { return n }
+            }
+            return nil
+        }
+
+        _ = try await coordinator.updateBody(noteRelPath, body: "alpha original\n")
+        // External writer replaces the SAME path with DIFFERENT content, inside
+        // the old 2s window (immediately after our own write).
+        try writeFile(vault, noteRelPath, sampleRaw(title: "Race", body: "bravo distinctive\n"))
+
+        try await Task.sleep(for: .seconds(2))
+        collector.cancel()
+        let found = await collector.value
+        #expect(found?.body == "bravo distinctive\n")
+        #expect(await coordinator.search("bravo") == [noteRelPath])
+        await coordinator.stop()
+    }
 }

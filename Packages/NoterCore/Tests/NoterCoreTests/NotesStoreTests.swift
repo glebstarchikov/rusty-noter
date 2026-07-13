@@ -90,8 +90,15 @@ import Foundation
         let store = NotesStore(vault: vault)
         _ = await store.loadAll()
         let note = try await store.create(title: "Echo")
-        #expect(await store.wasSelfWrite(path: note.relativePath, within: 2.0))
-        #expect(await !store.wasSelfWrite(path: "other.md", within: 2.0))
+        // Just-written: on-disk bytes equal what we wrote -> our own echo.
+        #expect(await store.isSelfWriteEcho(note.relativePath))
+        // No record for an unrelated path.
+        #expect(await !store.isSelfWriteEcho("other.md"))
+        // An EXTERNAL write of DIFFERENT content to the same path is NOT an echo,
+        // even immediately (content differs), so it will be processed.
+        try await store.updateBody(note.relativePath, body: "ours\n")
+        try writeFile(vault, note.relativePath, sampleRaw(title: "Echo", body: "theirs\n"))
+        #expect(await !store.isSelfWriteEcho(note.relativePath))
     }
 
     @Test func nonUTF8FileIsSalvagedNotHidden() async throws {

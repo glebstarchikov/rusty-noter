@@ -9,9 +9,12 @@ public actor NotesStore {
     public let vault: Vault
     private var cache: [String: Note] = [:]
     public private(set) var unparseablePaths: Set<String> = []
-    /// Echo journal: relativePath -> time of our last write, so the folder
-    /// watcher can distinguish self-writes from external edits.
-    private var selfWrites: [String: Date] = [:]
+    /// Echo journal: relativePath -> the exact raw string of our last write, so
+    /// the folder watcher can distinguish self-write echoes (on-disk bytes still
+    /// equal what we wrote) from real external edits (bytes differ). Content-based
+    /// per spec 5: a same-path external edit arriving inside any time window is
+    /// still processed, because its bytes no longer match what we wrote.
+    private var selfWriteContent: [String: String] = [:]
 
     public init(vault: Vault) {
         self.vault = vault
@@ -77,9 +80,18 @@ public actor NotesStore {
         unparseablePaths.remove(relativePath)
     }
 
-    public func wasSelfWrite(path: String, within: TimeInterval) -> Bool {
-        guard let t = selfWrites[path] else { return false }
-        return Date.now.timeIntervalSince(t) <= within
+    /// True iff `path`'s current on-disk bytes exactly equal what we last wrote
+    /// there: our own write's FSEvents echo. False when there is no record or the
+    /// bytes differ (a real external edit) — biasing toward processing, never
+    /// dropping a genuine change. A confirmed echo evicts the record to bound
+    /// memory; a rare second, non-coalesced echo then reloads identical bytes as
+    /// a harmless no-op.
+    public func isSelfWriteEcho(_ path: String) -> Bool {
+        guard let recorded = selfWriteContent[path] else { return false }
+        guard let data = try? Data(contentsOf: vault.noteURL(path)),
+              data == Data(recorded.utf8) else { return false }
+        selfWriteContent[path] = nil
+        return true
     }
 
     // MARK: - Private
@@ -111,7 +123,7 @@ public actor NotesStore {
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let raw = FrontmatterCodec.serialize(metadata: note.metadata, body: note.body)
         try raw.write(to: url, atomically: true, encoding: .utf8)
-        selfWrites[note.relativePath] = .now
+        selfWriteContent[note.relativePath] = raw
         cache[note.relativePath] = note
     }
 }
