@@ -25,6 +25,14 @@ struct NoteListView: View {
                     Text("No notes match this search.")
                         .font(.system(size: 13))
                         .foregroundStyle(TokenColor.secondary)
+                } else if model.sidebarSelection != .all {
+                    // A sidebar filter with no matches in a non-empty vault: a
+                    // New Note here creates a plain note the filter excludes, so
+                    // it would look like the note vanished. Offer no action.
+                    Text(model.sidebarSelection == .meetings
+                            ? "No meetings yet." : "Nothing here yet.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(TokenColor.secondary)
                 } else {
                     VStack(spacing: 12) {
                         Text("No notes yet.")
