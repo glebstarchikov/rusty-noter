@@ -26,38 +26,37 @@ public actor SearchIndex {
         }
     }
 
-    public func upsert(_ note: Note) throws {
-        try dbQueue.write { db in
+    public func upsert(_ note: Note) async throws {
+        try await dbQueue.write { db in
             try db.execute(sql: "DELETE FROM notes_fts WHERE path = ?",
                            arguments: [note.relativePath])
-            try db.execute(
-                sql: "INSERT INTO notes_fts (path, title, tags, body, updated) VALUES (?, ?, ?, ?, ?)",
-                arguments: [
-                    note.relativePath,
-                    note.metadata.title,
-                    note.metadata.tags.joined(separator: " "),
-                    note.body,
-                    note.metadata.updated.iso8601LocalString()
-                ])
+            try Self.insert(note, into: db)
         }
     }
 
-    public func remove(_ relativePath: String) throws {
-        try dbQueue.write { db in
+    public func remove(_ relativePath: String) async throws {
+        try await dbQueue.write { db in
             try db.execute(sql: "DELETE FROM notes_fts WHERE path = ?", arguments: [relativePath])
         }
     }
 
-    public func rebuild(from notes: [Note]) throws {
-        try dbQueue.write { db in
+    /// One write closure = one transaction (GRDB commits iff no error), so
+    /// the DELETE and all INSERTs land atomically: a crash mid-rebuild can
+    /// never leave a valid-looking index missing a subset of notes.
+    public func rebuild(from notes: [Note]) async throws {
+        try await dbQueue.write { db in
             try db.execute(sql: "DELETE FROM notes_fts")
+            // The table is empty inside this transaction, so plain INSERTs
+            // suffice (a per-note DELETE would be dead code here).
+            for note in notes {
+                try Self.insert(note, into: db)
+            }
         }
-        for note in notes { try upsert(note) }
     }
 
-    public func search(_ query: String, limit: Int = 50) throws -> [String] {
+    public func search(_ query: String, limit: Int = 50) async throws -> [String] {
         guard let pattern = FTS5Pattern(matchingAllPrefixesIn: query) else { return [] }
-        return try dbQueue.read { db in
+        return try await dbQueue.read { db in
             try String.fetchAll(db, sql: """
                 SELECT path FROM notes_fts
                 WHERE notes_fts MATCH ?
@@ -65,5 +64,19 @@ public actor SearchIndex {
                 LIMIT ?
                 """, arguments: [pattern, limit])
         }
+    }
+
+    /// Shared by `upsert` and `rebuild`; static so the `@Sendable` database
+    /// closures can call it without touching actor state.
+    private static func insert(_ note: Note, into db: Database) throws {
+        try db.execute(
+            sql: "INSERT INTO notes_fts (path, title, tags, body, updated) VALUES (?, ?, ?, ?, ?)",
+            arguments: [
+                note.relativePath,
+                note.metadata.title,
+                note.metadata.tags.joined(separator: " "),
+                note.body,
+                note.metadata.updated.iso8601LocalString()
+            ])
     }
 }
