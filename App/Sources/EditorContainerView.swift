@@ -68,6 +68,7 @@ struct EditorContainerView: View {
     }
 
     private func reloadFromModel() {
+        saveTask?.cancel()
         draftBody = note.body
         draftTitle = note.metadata.title
         lastSavedBody = note.body
