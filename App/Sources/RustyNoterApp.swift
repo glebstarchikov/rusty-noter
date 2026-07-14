@@ -27,8 +27,6 @@ struct RustyNoterApp: App {
             CommandGroup(after: .toolbar) {
                 Button("Command Palette") { model.paletteShown.toggle() }
                     .keyboardShortcut("k", modifiers: .command)
-                Button("Search Notes") { model.searchFieldFocused.toggle() }
-                    .keyboardShortcut("f", modifiers: [.command, .shift])
             }
         }
     }
@@ -46,8 +44,8 @@ struct MainSplitView: View {
             } content: {
                 NoteListView()
                     .navigationSplitViewColumnWidth(min: 240, ideal: 290)
-                    .searchable(text: $model.searchQuery, isPresented: $model.searchFieldFocused,
-                                placement: .toolbar, prompt: "Search notes")
+                    .searchable(text: $model.searchQuery, placement: .toolbar,
+                                prompt: "Search notes")
                     .onChange(of: model.searchQuery) {
                         Task { await model.runSearch() }
                     }
