@@ -9,8 +9,7 @@ struct RustyNoterApp: App {
         WindowGroup {
             Group {
                 if model.needsWelcome {
-                    Text("Vault folder not found. Settings arrive in a later task.")
-                        .foregroundStyle(TokenColor.secondary)
+                    WelcomeView()
                 } else {
                     MainSplitView()
                 }
@@ -28,6 +27,10 @@ struct RustyNoterApp: App {
                 Button("Command Palette") { model.paletteShown.toggle() }
                     .keyboardShortcut("k", modifiers: .command)
             }
+        }
+        Settings {
+            SettingsView()
+                .environment(model)
         }
     }
 }

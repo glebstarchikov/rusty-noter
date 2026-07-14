@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NoterCore
 
@@ -94,6 +95,28 @@ final class AppModel {
                 self.notes = await retry.start()
             }
         }
+    }
+
+    func setVault(_ url: URL) async {
+        UserDefaults.standard.set(url.path, forKey: Self.vaultPathKey)
+        await coordinator?.stop()
+        coordinator = nil
+        notes = []
+        selectedPath = nil
+        searchHits = nil
+        searchQuery = ""
+        await bootstrap()
+    }
+
+    @MainActor
+    static func chooseVaultFolder() -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Use This Folder"
+        panel.message = "Choose the folder where your notes live."
+        return panel.runModal() == .OK ? panel.url : nil
     }
 
     func newNote() async {
