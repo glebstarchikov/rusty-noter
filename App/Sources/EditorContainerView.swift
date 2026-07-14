@@ -28,6 +28,15 @@ struct EditorContainerView: View {
                 .padding(.top, 32)
                 .onSubmit { commitTitle() }
 
+            metadataSpine
+                .padding(.horizontal, 48)
+                .padding(.top, 8)
+
+            Divider()
+                .overlay(TokenColor.border)
+                .padding(.horizontal, 48)
+                .padding(.top, 16)
+
             if changedOnDisk {
                 HStack(spacing: 8) {
                     Text("This note changed on disk.")
@@ -55,6 +64,22 @@ struct EditorContainerView: View {
                 if isDirty { changedOnDisk = true } else { reloadFromModel() }
             }
         }
+    }
+
+    private var metadataSpine: some View {
+        HStack(spacing: 8) {
+            Text(Slug.dayString(note.metadata.updated))
+            if !note.metadata.tags.isEmpty {
+                Text("·")
+                Text(note.metadata.tags.joined(separator: ", "))
+                    .lineLimit(1)
+            }
+            Text("·")
+            Text("\(WordCount.count(of: draftBody)) words")
+        }
+        .font(.system(size: 11, design: .monospaced))
+        .foregroundStyle(TokenColor.faint)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func loadNote() {
