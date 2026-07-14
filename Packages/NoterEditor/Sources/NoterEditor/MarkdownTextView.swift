@@ -107,12 +107,29 @@ public struct MarkdownTextView: NSViewRepresentable {
     }
 }
 
-/// Caps the prose measure: content column max 680pt, centered (design.md ~62ch).
+/// Caps the prose measure (content column max 680pt, design.md ~62ch) and
+/// left-aligns it to the 48pt title margin. Previously the column was centered,
+/// which pushed the body right of the left-aligned title. `textContainerInset`
+/// is symmetric so it can't produce asymmetric margins; instead we fix the
+/// container width and override `textContainerOrigin` to pin the left edge.
 final class MeasuredTextView: NSTextView {
+    private let leftInset: CGFloat = 48
+    private let topInset: CGFloat = 40
+    private let maxWidth: CGFloat = 680
+
+    override var textContainerOrigin: NSPoint {
+        NSPoint(x: leftInset, y: topInset)
+    }
+
     override func layout() {
-        let maxWidth: CGFloat = 680
-        let horizontal = max((bounds.width - maxWidth) / 2, 40)
-        textContainerInset = NSSize(width: horizontal, height: 40)
+        textContainerInset = NSSize(width: 0, height: topInset)
+        textContainer?.lineFragmentPadding = 0
+        textContainer?.widthTracksTextView = false
+        // Cap the measure at 680pt, but never wider than the space left of the
+        // 48pt margin (mirrored on the right), so a narrow editor never clips.
+        let available = max(bounds.width - leftInset * 2, 0)
+        textContainer?.size = NSSize(width: min(maxWidth, available),
+                                     height: .greatestFiniteMagnitude)
         super.layout()
     }
 }

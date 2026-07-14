@@ -3,44 +3,98 @@ import NoterCore
 
 struct NoteListView: View {
     @Environment(AppModel.self) private var model
+    @FocusState private var listFocused: Bool
+
+    /// Visible notes flattened in render order, so arrow keys can walk the
+    /// selection across section boundaries.
+    private var flatPaths: [String] {
+        model.noteSections.flatMap { $0.notes.map(\.relativePath) }
+    }
 
     var body: some View {
-        @Bindable var model = model
-        List(selection: $model.selectedPath) {
-            ForEach(model.noteSections) { section in
-                Section {
-                    ForEach(section.notes) { note in
-                        NoteRow(note: note,
-                                selected: model.selectedPath == note.relativePath)
-                            .tag(note.relativePath)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
-                            .listRowBackground(Color.clear)
-                    }
-                } header: {
-                    if !section.title.isEmpty {
-                        Text(section.title.uppercased())
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(TokenColor.faint)
-                            .padding(.top, 4)
+        // A custom scroll+stack, not `List`: SwiftUI's `List(selection:)` paints
+        // its own bright system highlight on macOS that can't be suppressed in
+        // `.plain` style, which stacked on top of our accent-soft pill (two
+        // selections). Here each row draws the only selection background there
+        // is. Keyboard nav is preserved via `.focusable()` + `.onMoveCommand`.
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2, pinnedViews: [.sectionHeaders]) {
+                    ForEach(model.noteSections) { section in
+                        Section {
+                            ForEach(section.notes) { note in
+                                NoteRow(note: note,
+                                        selected: model.selectedPath == note.relativePath)
+                                    .id(note.relativePath)
+                                    .padding(.horizontal, 8)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        model.select(note.relativePath)
+                                        listFocused = true
+                                    }
+                            }
+                        } header: {
+                            if !section.title.isEmpty {
+                                sectionHeader(section.title)
+                            }
+                        }
                     }
                 }
+                .padding(.vertical, 6)
+            }
+            .background(TokenColor.bg)
+            .focusable()
+            .focusEffectDisabled()
+            .focused($listFocused)
+            .onMoveCommand { move($0) }
+            .onChange(of: model.selectedPath) { _, newValue in
+                guard let newValue else { return }
+                proxy.scrollTo(newValue, anchor: .center)
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(TokenColor.bg)
         .overlay { emptyState }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(TokenColor.faint)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+            .padding(.horizontal, 18) // aligns with the row title (8 outer + 10 inner)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(TokenColor.bg) // opaque so pinned headers occlude scrolling rows
+    }
+
+    /// Move the selection one row up/down through the flattened visible order.
+    /// With nothing selected yet, down picks the first row and up the last.
+    private func move(_ direction: MoveCommandDirection) {
+        let paths = flatPaths
+        guard !paths.isEmpty else { return }
+        guard let current = model.selectedPath,
+              let idx = paths.firstIndex(of: current) else {
+            model.select(direction == .up ? paths.last : paths.first)
+            return
+        }
+        switch direction {
+        case .up where idx > 0: model.select(paths[idx - 1])
+        case .down where idx < paths.count - 1: model.select(paths[idx + 1])
+        default: break
+        }
     }
 
     @ViewBuilder
     private var emptyState: some View {
         if model.visibleNotes.isEmpty {
+            // Empty state: one sentence, at most one action (design.md).
             if model.searchHits != nil {
                 Text("No notes match this search.")
                     .font(.system(size: 13))
                     .foregroundStyle(TokenColor.secondary)
             } else if model.sidebarSelection != .all {
+                // A sidebar filter with no matches in a non-empty vault: a
+                // New Note here creates a plain note the filter excludes, so
+                // it would look like the note vanished. Offer no action.
                 Text(model.sidebarSelection == .meetings ? "No meetings yet." : "Nothing here yet.")
                     .font(.system(size: 13))
                     .foregroundStyle(TokenColor.secondary)
