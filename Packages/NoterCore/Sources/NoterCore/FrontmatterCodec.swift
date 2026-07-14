@@ -82,10 +82,13 @@ public enum FrontmatterCodec {
             || s.rangeOfCharacter(from: CharacterSet(charactersIn: ":#[]{}&*!|>'\"%@`,")) != nil
             || s.hasPrefix(" ") || s.hasSuffix(" ")
             || s.hasPrefix("-")
+            || s.contains("\n") || s.contains("\r")
         guard needsQuoting else { return s }
         let escaped = s
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
         return "\"\(escaped)\""
     }
 }

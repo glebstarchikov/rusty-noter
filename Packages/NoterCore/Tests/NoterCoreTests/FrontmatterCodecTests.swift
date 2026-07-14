@@ -104,6 +104,14 @@ import Foundation
         }
     }
 
+    @Test func titleWithEmbeddedNewlineRoundTrips() throws {
+        var meta = sampleMetadata()
+        meta.title = "line one\nline two"
+        let raw = FrontmatterCodec.serialize(metadata: meta, body: "")
+        let parsed = try FrontmatterCodec.parse(raw)
+        #expect(parsed.metadata.title == "line one\nline two")
+    }
+
     @Test func bodyContainingTripleDashSurvives() throws {
         let body = "para one\n\n---\n\npara two after a thematic break\n"
         let raw = FrontmatterCodec.serialize(metadata: sampleMetadata(), body: body)

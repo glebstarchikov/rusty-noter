@@ -347,6 +347,6 @@ CLAUDE.md/AGENTS.md correctness (identical, path present, recipes functional
 with two documented self-match caveats), sub-1-second external-edit propagation
 (measured at 0.59s), broken-frontmatter salvage semantics and the
 never-rewrite guarantee (at the automatic-processing layer), and relaunch
-stability. Six categories of inherently visual/interactive behavior are
+stability. Five categories of inherently visual/interactive behavior are
 explicitly deferred to a human at the screen (section 4) rather than
 self-certified, per the task's binding constraint.

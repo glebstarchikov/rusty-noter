@@ -136,6 +136,22 @@ import Foundation
         #expect(await store.note(at: "notes.md.bak.md")?.metadata.title == "notes.md.bak")
     }
 
+    @Test func removeClearsEchoJournal() async throws {
+        // NB: does not pre-check isSelfWriteEcho before remove() — that call's own
+        // "confirmed echo evicts the record" side effect would clear the journal
+        // itself, making the post-remove() check pass whether or not remove() does
+        // its job. Checking only once, after remove(), keeps this a faithful test:
+        // the file is still on disk with matching bytes (remove() only evicts the
+        // in-memory cache, it doesn't delete anything), so isSelfWriteEcho would
+        // still report an echo unless remove() also pruned selfWriteContent.
+        let vault = try makeTempVault()
+        let store = NotesStore(vault: vault)
+        _ = await store.loadAll()
+        let note = try await store.create(title: "Echo")
+        await store.remove(note.relativePath)
+        #expect(await !store.isSelfWriteEcho(note.relativePath))  // journal entry gone
+    }
+
     @Test func updateTitleRewritesFrontmatterKeepsFilename() async throws {
         let vault = try makeTempVault()
         let store = NotesStore(vault: vault)

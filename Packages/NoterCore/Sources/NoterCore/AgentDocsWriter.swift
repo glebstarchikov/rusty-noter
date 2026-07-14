@@ -19,10 +19,10 @@ public enum AgentDocsWriter {
         Prefer ripgrep. Useful recipes:
 
         ~~~bash
-        rg -il "pricing" --glob "*.md"              # notes mentioning a word
-        rg -l "^tags: .*standup" --glob "*.md"      # notes with a tag
-        rg -l "^type: meeting" --glob "*.md"        # all meeting notes
-        rg -l "^status: recording" --glob "*.md"    # meeting happening RIGHT NOW
+        rg -il "pricing" --glob "*.md"                                                             # notes mentioning a word
+        rg -l "^tags: .*standup" --glob "*.md" --glob '!INDEX.md' --glob '!CLAUDE.md' --glob '!AGENTS.md'    # notes with a tag
+        rg -l "^type: meeting" --glob "*.md" --glob '!INDEX.md' --glob '!CLAUDE.md' --glob '!AGENTS.md'      # all meeting notes
+        rg -l "^status: recording" --glob "*.md" --glob '!INDEX.md' --glob '!CLAUDE.md' --glob '!AGENTS.md'  # meeting happening RIGHT NOW
         ~~~
 
         ## Note format

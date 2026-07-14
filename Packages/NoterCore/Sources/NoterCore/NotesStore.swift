@@ -91,6 +91,7 @@ public actor NotesStore {
     public func remove(_ relativePath: String) {
         cache[relativePath] = nil
         unparseablePaths.remove(relativePath)
+        selfWriteContent[relativePath] = nil
     }
 
     /// True iff `path`'s current on-disk bytes exactly equal what we last wrote

@@ -47,7 +47,7 @@ final class AppModel {
             filtered = notes.filter { $0.relativePath.hasPrefix(folder + "/") }
         }
         guard let hits = searchHits else { return filtered }
-        let order = Dictionary(uniqueKeysWithValues: hits.enumerated().map { ($1, $0) })
+        let order = Dictionary(hits.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         return filtered.filter { order[$0.relativePath] != nil }
             .sorted { (order[$0.relativePath] ?? 0) < (order[$1.relativePath] ?? 0) }
     }
@@ -63,6 +63,18 @@ final class AppModel {
         })).sorted()
     }
 
+    private func activate(_ coordinator: VaultCoordinator) async {
+        self.coordinator = coordinator
+        self.notes = await coordinator.start()
+        let stream = coordinator.updates
+        Task { [weak self] in
+            for await snapshot in stream {
+                self?.notes = snapshot
+                await self?.runSearch()
+            }
+        }
+    }
+
     func bootstrap() async {
         guard FileManager.default.fileExists(atPath: vaultURL.path) else {
             needsWelcome = true
@@ -76,15 +88,7 @@ final class AppModel {
             let coordinator = try VaultCoordinator(
                 vault: Vault(root: vaultURL),
                 indexDatabasePath: appSupport.appendingPathComponent("index.db").path)
-            self.coordinator = coordinator
-            self.notes = await coordinator.start()
-            let stream = coordinator.updates
-            Task { [weak self] in
-                for await snapshot in stream {
-                    self?.notes = snapshot
-                    await self?.runSearch()
-                }
-            }
+            await activate(coordinator)
         } catch {
             // Index cache is disposable: wipe and retry once (spec section 11).
             try? FileManager.default.removeItem(
@@ -92,8 +96,7 @@ final class AppModel {
             if let retry = try? VaultCoordinator(
                 vault: Vault(root: vaultURL),
                 indexDatabasePath: appSupport.appendingPathComponent("index.db").path) {
-                self.coordinator = retry
-                self.notes = await retry.start()
+                await activate(retry)
             }
         }
     }
