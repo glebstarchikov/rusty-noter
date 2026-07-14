@@ -24,6 +24,12 @@ struct RustyNoterApp: App {
                 Button("New Note") { Task { await model.newNote() } }
                     .keyboardShortcut("n", modifiers: .command)
             }
+            CommandGroup(after: .toolbar) {
+                Button("Command Palette") { model.paletteShown.toggle() }
+                    .keyboardShortcut("k", modifiers: .command)
+                Button("Search Notes") { model.searchFieldFocused.toggle() }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+            }
         }
     }
 }
@@ -33,36 +39,46 @@ struct MainSplitView: View {
 
     var body: some View {
         @Bindable var model = model
-        NavigationSplitView {
-            SidebarView()
-                .navigationSplitViewColumnWidth(min: 180, ideal: 210)
-        } content: {
-            NoteListView()
-                .navigationSplitViewColumnWidth(min: 240, ideal: 290)
-                .searchable(text: $model.searchQuery, placement: .toolbar,
-                            prompt: "Search notes")
-                .onChange(of: model.searchQuery) {
-                    Task { await model.runSearch() }
+        ZStack(alignment: .top) {
+            NavigationSplitView {
+                SidebarView()
+                    .navigationSplitViewColumnWidth(min: 180, ideal: 210)
+            } content: {
+                NoteListView()
+                    .navigationSplitViewColumnWidth(min: 240, ideal: 290)
+                    .searchable(text: $model.searchQuery, isPresented: $model.searchFieldFocused,
+                                placement: .toolbar, prompt: "Search notes")
+                    .onChange(of: model.searchQuery) {
+                        Task { await model.runSearch() }
+                    }
+            } detail: {
+                if let path = model.selectedPath,
+                   let note = model.notes.first(where: { $0.relativePath == path }) {
+                    EditorContainerView(note: note)
+                } else {
+                    Text("Select a note.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(TokenColor.secondary)
                 }
-        } detail: {
-            if let path = model.selectedPath,
-               let note = model.notes.first(where: { $0.relativePath == path }) {
-                EditorContainerView(note: note)
-            } else {
-                Text("Select a note.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(TokenColor.secondary)
             }
-        }
-        .background(TokenColor.bg)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await model.newNote() }
-                } label: {
-                    Label("New Note", systemImage: "square.and.pencil")
+            .background(TokenColor.bg)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await model.newNote() }
+                    } label: {
+                        Label("New Note", systemImage: "square.and.pencil")
+                    }
+                    .help("New Note (Cmd+N)")
                 }
-                .help("New Note (Cmd+N)")
+            }
+            if model.paletteShown {
+                Color.black.opacity(0.001) // click-away catcher
+                    .ignoresSafeArea()
+                    .onTapGesture { model.paletteShown = false }
+                CommandPaletteView()
+                    .padding(.top, 120)
+                    .transition(.opacity)
             }
         }
     }

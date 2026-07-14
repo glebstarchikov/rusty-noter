@@ -17,6 +17,7 @@ final class AppModel {
     var needsWelcome = false
     var sidebarSelection: SidebarSelection = .all
     var searchFieldFocused = false
+    var paletteShown = false
 
     private(set) var coordinator: VaultCoordinator?
 
