@@ -52,6 +52,16 @@ final class AppModel {
             .sorted { (order[$0.relativePath] ?? 0) < (order[$1.relativePath] ?? 0) }
     }
 
+    /// The visible notes grouped for display. When a search is active, grouping
+    /// is suppressed: results come back as one unlabeled, relevance-ordered
+    /// section (search is about relevance, not recency).
+    var noteSections: [NoteSection] {
+        if searchHits != nil {
+            return visibleNotes.isEmpty ? [] : [NoteSection(title: "", notes: visibleNotes)]
+        }
+        return NoteGrouping.sections(notes: visibleNotes, now: Date(), calendar: .current)
+    }
+
     var allTags: [String] {
         Array(Set(notes.flatMap { $0.metadata.tags })).sorted()
     }
