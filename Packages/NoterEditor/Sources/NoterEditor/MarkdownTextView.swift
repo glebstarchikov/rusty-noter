@@ -78,7 +78,9 @@ public struct MarkdownTextView: NSViewRepresentable {
             storage.beginEditing()
             storage.setAttributes([
                 .font: theme.bodyFont,
-                .foregroundColor: theme.fg
+                .foregroundColor: theme.fg,
+                .backgroundColor: NSColor.clear,
+                .paragraphStyle: NSParagraphStyle.default
             ], range: full)
             for span in MarkdownHighlighter.spans(in: textView.string) {
                 guard NSMaxRange(span.range) <= storage.length else { continue }
@@ -92,14 +94,21 @@ public struct MarkdownTextView: NSViewRepresentable {
                 case .inlineCode, .codeBlock:
                     storage.addAttributes([
                         .font: theme.monoFont,
-                        .foregroundColor: theme.secondary
+                        .foregroundColor: theme.secondary,
+                        .backgroundColor: theme.codeBackground
                     ], range: span.range)
                 case .link:
                     storage.addAttribute(.foregroundColor, value: theme.accent, range: span.range)
                 case .listMarker:
                     storage.addAttribute(.foregroundColor, value: theme.faint, range: span.range)
                 case .blockquote:
-                    storage.addAttribute(.foregroundColor, value: theme.secondary, range: span.range)
+                    let quoteStyle = NSMutableParagraphStyle()
+                    quoteStyle.firstLineHeadIndent = 16
+                    quoteStyle.headIndent = 16
+                    storage.addAttributes([
+                        .foregroundColor: theme.secondary,
+                        .paragraphStyle: quoteStyle
+                    ], range: span.range)
                 }
             }
             storage.endEditing()

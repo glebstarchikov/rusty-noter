@@ -19,6 +19,7 @@ public struct EditorTheme: @unchecked Sendable {
     public let faint: NSColor
     public let accent: NSColor
     public let bg: NSColor
+    public let codeBackground: NSColor
 
     @MainActor
     public static func standard() -> EditorTheme {
@@ -33,15 +34,16 @@ public struct EditorTheme: @unchecked Sendable {
             italicFont: italic,
             monoFont: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
             headingFonts: [
-                1: NSFont.systemFont(ofSize: 24, weight: .semibold),
-                2: NSFont.systemFont(ofSize: 20, weight: .semibold),
-                3: NSFont.systemFont(ofSize: 18, weight: .semibold)
+                1: NSFont.systemFont(ofSize: 22, weight: .semibold),
+                2: NSFont.systemFont(ofSize: 19, weight: .semibold),
+                3: NSFont.systemFont(ofSize: 17, weight: .semibold)
             ],
             fg: named("fg", fallback: .labelColor),
             secondary: named("secondary", fallback: .secondaryLabelColor),
             faint: named("faint", fallback: .tertiaryLabelColor),
             accent: named("accent", fallback: .controlAccentColor),
-            bg: named("bg", fallback: .textBackgroundColor)
+            bg: named("bg", fallback: .textBackgroundColor),
+            codeBackground: named("elevated", fallback: NSColor.textBackgroundColor.blended(withFraction: 0.06, of: .white) ?? .textBackgroundColor)
         )
     }
 
