@@ -21,6 +21,7 @@ final class AppModel {
     var paletteShown = false
 
     private(set) var coordinator: VaultCoordinator?
+    private(set) var isSwitchingVault = false
 
     static let vaultPathKey = "vaultPath"
 
@@ -98,6 +99,9 @@ final class AppModel {
     }
 
     func setVault(_ url: URL) async {
+        guard !isSwitchingVault else { return }
+        isSwitchingVault = true
+        defer { isSwitchingVault = false }
         UserDefaults.standard.set(url.path, forKey: Self.vaultPathKey)
         await coordinator?.stop()
         coordinator = nil

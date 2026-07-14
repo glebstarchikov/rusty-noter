@@ -21,6 +21,7 @@ struct WelcomeView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(model.isSwitchingVault)
                 Button("Choose Folder") {
                     Task {
                         if let url = AppModel.chooseVaultFolder() {
@@ -28,6 +29,7 @@ struct WelcomeView: View {
                         }
                     }
                 }
+                .disabled(model.isSwitchingVault)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

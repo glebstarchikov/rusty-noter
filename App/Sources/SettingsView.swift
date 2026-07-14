@@ -19,6 +19,7 @@ struct SettingsView: View {
                         }
                     }
                 }
+                .disabled(model.isSwitchingVault)
                 Text("The app generates INDEX.md, CLAUDE.md, and AGENTS.md at the folder root so AI agents can navigate your notes.")
                     .font(.system(size: 11))
                     .foregroundStyle(TokenColor.faint)
