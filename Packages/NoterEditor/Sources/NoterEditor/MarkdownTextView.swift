@@ -82,7 +82,9 @@ public struct MarkdownTextView: NSViewRepresentable {
                 .backgroundColor: NSColor.clear,
                 .paragraphStyle: NSParagraphStyle.default
             ], range: full)
-            for span in MarkdownHighlighter.spans(in: textView.string) {
+            let spans = MarkdownHighlighter.spans(in: textView.string)
+            // Pass 1: content spans (everything except syntaxMarker).
+            for span in spans where span.kind != .syntaxMarker {
                 guard NSMaxRange(span.range) <= storage.length else { continue }
                 switch span.kind {
                 case .heading(let level):
@@ -109,7 +111,15 @@ public struct MarkdownTextView: NSViewRepresentable {
                         .foregroundColor: theme.secondary,
                         .paragraphStyle: quoteStyle
                     ], range: span.range)
+                case .syntaxMarker:
+                    break // handled in pass 2, after content so faint wins
                 }
+            }
+            // Pass 2: syntax-marker glyphs on top, so faint overrides the
+            // content color pass 1 just applied on the same range.
+            for span in spans where span.kind == .syntaxMarker {
+                guard NSMaxRange(span.range) <= storage.length else { continue }
+                storage.addAttribute(.foregroundColor, value: theme.faint, range: span.range)
             }
             storage.endEditing()
         }
