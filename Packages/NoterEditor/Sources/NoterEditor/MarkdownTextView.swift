@@ -71,6 +71,18 @@ public struct MarkdownTextView: NSViewRepresentable {
             restyle()
         }
 
+        /// Reveal follows the cursor: re-run the attribute-only restyle
+        /// whenever the selection moves, so the active paragraph's markers
+        /// un-hide and the previously-active paragraph's markers hide again.
+        /// Safe to call unconditionally — `restyle()` never mutates the
+        /// string, the selection, or the undo stack, so this cannot itself
+        /// re-trigger selection-change (verified in
+        /// MarkdownTextViewRestyleTests: attribute edits alone post no
+        /// `NSTextView.didChangeSelectionNotification`).
+        public func textViewDidChangeSelection(_ notification: Notification) {
+            restyle()
+        }
+
         func restyle() {
             guard let textView, let storage = textView.textStorage else { return }
             let theme = parent.theme
@@ -115,11 +127,25 @@ public struct MarkdownTextView: NSViewRepresentable {
                     break // handled in pass 2, after content so faint wins
                 }
             }
-            // Pass 2: syntax-marker glyphs on top, so faint overrides the
-            // content color pass 1 just applied on the same range.
+            // Pass 2: syntax-marker glyphs, hide-vs-reveal by active paragraph
+            // (R6c). On the paragraph the cursor/selection is in, dim them
+            // (as before) so the raw glyphs stay visible and editable. Off
+            // that paragraph, collapse them to a near-zero font (+ clear
+            // color as a rendering safety net) so the content they wrap
+            // reads as clean formatted text. Attribute-only: never touches
+            // the string, selection, or undo stack.
+            let activePara = SyntaxMarkerVisibility.activeParagraphRange(
+                in: textView.string, selectedRange: textView.selectedRange())
             for span in spans where span.kind == .syntaxMarker {
                 guard NSMaxRange(span.range) <= storage.length else { continue }
-                storage.addAttribute(.foregroundColor, value: theme.faint, range: span.range)
+                if SyntaxMarkerVisibility.isActive(span, activeParagraph: activePara) {
+                    storage.addAttribute(.foregroundColor, value: theme.faint, range: span.range)
+                } else {
+                    storage.addAttributes([
+                        .font: theme.hiddenFont,
+                        .foregroundColor: NSColor.clear
+                    ], range: span.range)
+                }
             }
             storage.endEditing()
         }

@@ -13,6 +13,9 @@ public struct EditorTheme: @unchecked Sendable {
     public let boldFont: NSFont
     public let italicFont: NSFont
     public let monoFont: NSFont
+    /// Near-zero-size font used to collapse off-active `.syntaxMarker`
+    /// glyphs to ~invisible/zero-width (R6c hide/reveal-on-active-line).
+    public let hiddenFont: NSFont
     public let headingFonts: [Int: NSFont]
     public let fg: NSColor
     public let secondary: NSColor
@@ -33,6 +36,7 @@ public struct EditorTheme: @unchecked Sendable {
             boldFont: NSFont.systemFont(ofSize: 16, weight: .semibold),
             italicFont: italic,
             monoFont: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
+            hiddenFont: NSFont.systemFont(ofSize: 0.01),
             headingFonts: [
                 1: NSFont.systemFont(ofSize: 22, weight: .semibold),
                 2: NSFont.systemFont(ofSize: 19, weight: .semibold),
