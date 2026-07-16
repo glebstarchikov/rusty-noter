@@ -31,6 +31,11 @@ public struct EditorTheme: @unchecked Sendable {
         }
         let body = NSFont.systemFont(ofSize: 16)
         let italic = NSFontManager.shared.convert(body, toHaveTrait: .italicFontMask)
+        let bgColor = named("bg", fallback: .textBackgroundColor)
+        let fgColor = named("fg", fallback: .labelColor)
+        // Code panels need a clearly-visible fill: the "elevated" token is too
+        // close to bg on the dark theme to read as a panel, so blend bg toward fg.
+        let codePanel = bgColor.blended(withFraction: 0.08, of: fgColor) ?? bgColor
         return EditorTheme(
             bodyFont: body,
             boldFont: NSFont.systemFont(ofSize: 16, weight: .semibold),
@@ -42,12 +47,12 @@ public struct EditorTheme: @unchecked Sendable {
                 2: NSFont.systemFont(ofSize: 19, weight: .semibold),
                 3: NSFont.systemFont(ofSize: 17, weight: .semibold)
             ],
-            fg: named("fg", fallback: .labelColor),
+            fg: fgColor,
             secondary: named("secondary", fallback: .secondaryLabelColor),
             faint: named("faint", fallback: .tertiaryLabelColor),
             accent: named("accent", fallback: .controlAccentColor),
-            bg: named("bg", fallback: .textBackgroundColor),
-            codeBackground: named("elevated", fallback: NSColor.textBackgroundColor.blended(withFraction: 0.06, of: .white) ?? .textBackgroundColor)
+            bg: bgColor,
+            codeBackground: codePanel
         )
     }
 
