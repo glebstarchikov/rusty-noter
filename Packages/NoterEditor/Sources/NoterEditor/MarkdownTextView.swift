@@ -1,6 +1,15 @@
 import SwiftUI
 import AppKit
 
+/// Marks a `.syntaxMarker` range as hidden off the active paragraph. The
+/// `NSLayoutManagerDelegate` glyph-nulling below (R6d) nulls the glyphs for
+/// any character carrying this attribute -- true zero-width hiding done at
+/// the TextKit layer, not a 0.01pt-font hack. Attribute-only: the marked
+/// characters are still real characters in the string (files-are-truth).
+extension NSAttributedString.Key {
+    static let mdHidden = NSAttributedString.Key("noter.mdHidden")
+}
+
 /// Markdown source editor: NSTextView with attribute-only restyling on every
 /// change. Attribute edits never move the selection or dirty the undo stack.
 public struct MarkdownTextView: NSViewRepresentable {
@@ -58,7 +67,7 @@ public struct MarkdownTextView: NSViewRepresentable {
     }
 
     @MainActor
-    public final class Coordinator: NSObject, NSTextViewDelegate {
+    public final class Coordinator: NSObject, NSTextViewDelegate, @preconcurrency NSLayoutManagerDelegate {
         var parent: MarkdownTextView
         weak var textView: NSTextView?
 
@@ -86,6 +95,31 @@ public struct MarkdownTextView: NSViewRepresentable {
         func restyle() {
             guard let textView, let storage = textView.textStorage else { return }
             let theme = parent.theme
+
+            // Opt this view into TextKit 1 compatibility mode: accessing
+            // `.layoutManager` is the documented trigger (still verified
+            // working on macOS 26) for a TextKit-2-default NSTextView to
+            // migrate to an NSLayoutManager, which is required for the
+            // shouldGenerateGlyphs delegate hook below to ever fire.
+            // Idempotent and cheap once already opted in -- verified
+            // empirically that repeat access re-fires no notification and
+            // does no extra work -- so it's safe to call on every restyle().
+            let layoutManager = textView.layoutManager
+            if layoutManager?.delegate !== self {
+                layoutManager?.delegate = self
+            }
+            // `backgroundLayoutEnabled` defaults to true, which per Apple's
+            // docs means glyph generation/layout may be deferred to idle
+            // run-loop time rather than happening immediately -- but that
+            // idle work still runs on the main thread ("Background layout
+            // occurs on the main thread when it is idle"), not a
+            // background *thread*. Turning it off removes any ambiguity:
+            // it makes layout for this view fully synchronous, so
+            // `shouldGenerateGlyphs`/`setGlyphs` below -- which read
+            // `NSTextStorage` and are not thread-safe -- are guaranteed to
+            // run on the @MainActor this Coordinator is isolated to.
+            layoutManager?.backgroundLayoutEnabled = false
+
             let full = NSRange(location: 0, length: storage.length)
             storage.beginEditing()
             storage.setAttributes([
@@ -128,12 +162,14 @@ public struct MarkdownTextView: NSViewRepresentable {
                 }
             }
             // Pass 2: syntax-marker glyphs, hide-vs-reveal by active paragraph
-            // (R6c). On the paragraph the cursor/selection is in, dim them
-            // (as before) so the raw glyphs stay visible and editable. Off
-            // that paragraph, collapse them to a near-zero font (+ clear
-            // color as a rendering safety net) so the content they wrap
-            // reads as clean formatted text. Attribute-only: never touches
-            // the string, selection, or undo stack.
+            // (R6c/R6d). On the paragraph the cursor/selection is in, dim
+            // them (as before) so the raw glyphs stay visible and editable.
+            // Off that paragraph, mark `.mdHidden` -- the
+            // shouldGenerateGlyphs delegate below nulls those glyphs at the
+            // TextKit layer, so no special font/color is needed here; the
+            // pass-0 defaults above are fine, the glyph-null makes them
+            // invisible regardless. Attribute-only: never touches the
+            // string, selection, or undo stack.
             let activePara = SyntaxMarkerVisibility.activeParagraphRange(
                 in: textView.string, selectedRange: textView.selectedRange())
             for span in spans where span.kind == .syntaxMarker {
@@ -141,13 +177,104 @@ public struct MarkdownTextView: NSViewRepresentable {
                 if SyntaxMarkerVisibility.isActive(span, activeParagraph: activePara) {
                     storage.addAttribute(.foregroundColor, value: theme.faint, range: span.range)
                 } else {
-                    storage.addAttributes([
-                        .font: theme.hiddenFont,
-                        .foregroundColor: NSColor.clear
-                    ], range: span.range)
+                    storage.addAttribute(.mdHidden, value: true, range: span.range)
+                    // A fence delimiter line (e.g. "```swift") is entirely
+                    // .syntaxMarker -- the highlighter emits both .codeBlock
+                    // and .syntaxMarker over the identical range only for
+                    // those lines, never for a partial-line marker like a
+                    // heading's "# ". Glyph-nulling zeroes such a line's
+                    // WIDTH but TextKit still reserves a full line's HEIGHT
+                    // for an all-null-glyph line (verified empirically: an
+                    // 18pt line stays 18pt tall even fully nulled), so
+                    // without this a hidden fence leaves a blank row rather
+                    // than disappearing. Collapse the height too via
+                    // NSParagraphStyle line-height clamping -- a documented,
+                    // intentional TextKit lever, not a magic-font hack --
+                    // reverted automatically once active because pass 0
+                    // above resets every paragraph to `.default` on every
+                    // restyle() call.
+                    if spans.contains(where: { $0.kind == .codeBlock && $0.range == span.range }) {
+                        let collapsedLine = NSMutableParagraphStyle()
+                        collapsedLine.minimumLineHeight = 0.01
+                        collapsedLine.maximumLineHeight = 0.01
+                        storage.addAttribute(.paragraphStyle, value: collapsedLine, range: span.range)
+                    }
                 }
             }
             storage.endEditing()
+
+            // The delegate only re-runs when glyphs actually regenerate,
+            // which an attribute-only edit doesn't always guarantee. Force
+            // it explicitly so the newly-active paragraph's markers get
+            // their glyphs restored and the newly-inactive paragraph's get
+            // nulled -- verified empirically this doesn't loop or flicker
+            // (attribute edits alone post no selection/text-change
+            // notification, so this can't re-enter restyle()).
+            layoutManager?.invalidateGlyphs(forCharacterRange: full, changeInLength: 0, actualCharacterRange: nil)
+            layoutManager?.invalidateLayout(forCharacterRange: full, actualCharacterRange: nil)
+        }
+
+        // MARK: - NSLayoutManagerDelegate (glyph-nulling, R6d Part 1)
+
+        /// Nulls the glyphs for characters marked `.mdHidden` so they render
+        /// at zero width -- the robust, documented replacement for the old
+        /// 0.01pt-font hack. Only fires once the text view is in TextKit 1
+        /// compatibility mode (see the `.layoutManager` access in
+        /// `restyle()`); `setGlyphs` is the only sanctioned way to apply
+        /// modified properties here (per Apple's docs: "The only place apps
+        /// are allowed to call this method directly is from [this delegate
+        /// method]").
+        public func layoutManager(
+            _ layoutManager: NSLayoutManager,
+            shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
+            properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
+            characterIndexes charIndexes: UnsafePointer<Int>,
+            font aFont: NSFont,
+            forGlyphRange glyphRange: NSRange
+        ) -> Int {
+            guard let storage = layoutManager.textStorage else { return 0 }
+            var modified = Array(UnsafeBufferPointer(start: props, count: glyphRange.length))
+            var anyHidden = false
+            for i in 0..<glyphRange.length {
+                let charIndex = charIndexes[i]
+                guard charIndex < storage.length,
+                      storage.attribute(.mdHidden, at: charIndex, effectiveRange: nil) != nil else { continue }
+                modified[i].insert(.null)
+                anyHidden = true
+            }
+            guard anyHidden else { return 0 }
+            layoutManager.setGlyphs(glyphs, properties: modified, characterIndexes: charIndexes, font: aFont, forGlyphRange: glyphRange)
+            return glyphRange.length
+        }
+
+        // MARK: - NSTextViewDelegate (caret-skip, R6d Part 2)
+
+        /// Makes the caret glide across a hidden `.mdHidden` run in one
+        /// press instead of pausing at every character inside it -- the
+        /// hidden characters are still real characters in the string
+        /// (glyph-nulling above only changes rendering), so without this
+        /// hook the caret would still step through them one at a time. Pure
+        /// decision logic lives in `CaretSkip` (unit-tested there); this
+        /// just gathers the currently-hidden ranges and defers to it.
+        /// Non-empty selections (drag/shift-click) pass through untouched.
+        public func textView(
+            _ textView: NSTextView,
+            willChangeSelectionFromCharacterRange oldSelectedCharRange: NSRange,
+            toCharacterRange newSelectedCharRange: NSRange
+        ) -> NSRange {
+            guard newSelectedCharRange.length == 0, let storage = textView.textStorage else {
+                return newSelectedCharRange
+            }
+            var hiddenRanges: [NSRange] = []
+            storage.enumerateAttribute(.mdHidden, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                guard value != nil else { return }
+                hiddenRanges.append(range)
+            }
+            let adjusted = CaretSkip.adjustedLocation(
+                old: oldSelectedCharRange.location,
+                proposed: newSelectedCharRange.location,
+                hiddenRanges: hiddenRanges)
+            return NSRange(location: adjusted, length: 0)
         }
     }
 }
