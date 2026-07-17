@@ -421,45 +421,105 @@ final class MeasuredTextView: NSTextView {
     /// `needsDisplay = true`; this turns each character range into a
     /// screen rect via the layout manager and paints a decoration there.
     ///
-    /// Geometry APIs: `NSLayoutManager.glyphRange(forCharacterRange:
-    /// actualCharacterRange:)` and `boundingRect(forGlyphRange:in:)`.
-    /// Context7 has no real Apple AppKit/TextKit coverage (resolves to an
-    /// unrelated Web3 "AppKit" package -- confirmed again for this task,
-    /// same gap task-6d-report.md hit); cross-checked instead via
-    /// `objc2-app-kit` (Rust AppKit bindings that mirror Apple's actual
-    /// selectors), which confirms `glyphRangeForBoundingRect:inTextContainer:`
-    /// -- documented since Mac OS X 10.0 as this pair's exact inverse --
-    /// and, most concretely, both calls are already exercised successfully
-    /// by `MarkdownTextViewRestyleTests` against this exact TextKit-1
-    /// compatibility-mode setup (e.g.
-    /// `hiddenMarkerGlyphsCollapseToNearZeroWidthGeometrically`).
+    /// The bug this fixes: Gleb found visually that both the bar and the
+    /// bullet were drawing on TWO lines -- the correct one AND one line
+    /// above it. The original (R6e) implementation used
+    /// `boundingRect(forGlyphRange:in:)`, which -- per the local macOS
+    /// 26.4 SDK's `NSLayoutManager.h` (Context7 still has no real Apple
+    /// AppKit/TextKit coverage, same gap task-6d/6e reports hit) --
+    /// returns "the smallest bounding rect which completely encloses the
+    /// glyphs in the given glyphRange," i.e. a UNION over every line
+    /// fragment the range's glyphs touch.
+    ///
+    /// Root cause, verified empirically (glyph-by-glyph, via
+    /// `lineFragmentRect(forGlyphAt:effectiveRange:)` against a real
+    /// multi-paragraph layout) rather than assumed: a glyph-nulled
+    /// (`.mdHidden`, zero-width/`notShown`) marker run sitting at the very
+    /// start of a line gets attributed by the typesetter to the tail of
+    /// the PREVIOUS line's fragment, not its own -- so any range beginning
+    /// with one touches two fragments, and `boundingRect` unioned them
+    /// into a rect ~2 lines tall. (The existing
     /// `hiddenUnorderedMarkerRunReportsCorrectLineGeometryForBulletPlacement`
-    /// in that file additionally proves the one assumption specific to this
-    /// task: a glyph-nulled (zero-width) marker run still reports its
-    /// line's correct Y/height, which is what makes deriving the bullet's
-    /// vertical position from the (hidden) marker's own bounding rect valid.
+    /// test never caught this -- it only asserts the marker rect's width
+    /// and height, never its Y-origin, which is exactly where the union
+    /// bites.)
+    ///
+    /// `enumerateLineFragments(forGlyphRange:using:)` reports fragments
+    /// individually instead of unioning them -- `usedRect`, the tight,
+    /// actually-laid-out area, is used over the sibling `rect` param,
+    /// which is the fuller reserved-layout rect and can overshoot -- but
+    /// that alone is NOT the fix: the spurious previous-line fragment
+    /// still shows up as one of the enumerated fragments. Proven
+    /// empirically to matter for bullets specifically: `bulletRanges` is
+    /// only the marker's own 2-4 chars (`BlockDecorations.ListItem
+    /// .markerRange`), 100% nulled glyphs, so it's the *only* fragment
+    /// `enumerateLineFragments` reports for that range -- "take the first
+    /// fragment" would silently draw the bullet on the wrong line every
+    /// time, not just when wrapped. So every fragment is filtered: it
+    /// only counts if the glyph range `enumerateLineFragments` hands back
+    /// FOR IT starts at/after the glyph range being queried -- the
+    /// spurious fragment always starts before it (it began life on the
+    /// previous line). Verified this isn't a false-negative trap: with no
+    /// previous line at all (marker on the document's first paragraph),
+    /// only the correct fragment is ever reported, and the filter keeps
+    /// it.
+    ///
+    /// Bullets need one more step to have anything genuine to filter
+    /// down to: since the marker's own range is wholly nulled glyphs (see
+    /// above), it never resolves a second, real fragment on its own --
+    /// verified even an otherwise-empty item ("- " then just the line's
+    /// own terminating newline) still needs that newline's non-nulled
+    /// glyph to anchor one. So the query is widened from the marker to
+    /// its enclosing paragraph via `NSString.paragraphRange(for:)` --
+    /// pure string-range math, unaffected by the glyph quirk -- then the
+    /// filter picks the genuine fragment out of it. Blockquote bars don't
+    /// need this widening: `blockquoteRanges` is already the whole source
+    /// line, visible content included, so a genuine fragment is always
+    /// among the ones enumerated.
+    ///
+    /// Blockquote bars draw one segment per genuine fragment, so a
+    /// wrapped quote line's bar covers each of its visual rows (verified:
+    /// an 8-row wrapped line yields 8 genuine fragments, in top-to-bottom
+    /// order, plus the one spurious leading fragment). List bullets draw
+    /// once, at the first genuine fragment -- a wrapped list item's
+    /// bullet always belongs on its marker's own (first) line.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        guard let lm = layoutManager, let tc = textContainer, let storage = textStorage else { return }
+        guard let lm = layoutManager, let storage = textStorage else { return }
         let barColor = theme?.borderStrong ?? .separatorColor
         let bulletColor = theme?.faint ?? .tertiaryLabelColor
 
         for charRange in blockquoteRanges {
             guard charRange.location >= 0, NSMaxRange(charRange) <= storage.length else { continue }
             let glyphRange = lm.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
-            var barRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
-            barRect.origin.y += textContainerOrigin.y
-            barRect.origin.x = textContainerOrigin.x + quoteBarIndentX
-            barRect.size.width = quoteBarWidth
-            let radius = quoteBarWidth / 2
-            barColor.setFill()
-            NSBezierPath(roundedRect: barRect, xRadius: radius, yRadius: radius).fill()
+            lm.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, fragGlyphRange, _ in
+                // Skip the spurious fragment inherited from the previous
+                // line -- see the doc comment above.
+                guard fragGlyphRange.location >= glyphRange.location else { return }
+                var barRect = usedRect
+                barRect.origin.y += self.textContainerOrigin.y
+                barRect.origin.x = self.textContainerOrigin.x + self.quoteBarIndentX
+                barRect.size.width = self.quoteBarWidth
+                let radius = self.quoteBarWidth / 2
+                barColor.setFill()
+                NSBezierPath(roundedRect: barRect, xRadius: radius, yRadius: radius).fill()
+            }
         }
 
         for charRange in bulletRanges {
             guard charRange.location >= 0, NSMaxRange(charRange) <= storage.length else { continue }
-            let glyphRange = lm.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
-            let lineRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
+            // Widen marker-only charRange to its paragraph so there's real
+            // content for the typesetter to anchor a genuine fragment to
+            // -- see the doc comment above.
+            let lineRange = (storage.string as NSString).paragraphRange(for: charRange)
+            let glyphRange = lm.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            var lineRect: NSRect?
+            lm.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, fragGlyphRange, stop in
+                guard fragGlyphRange.location >= glyphRange.location else { return }
+                lineRect = usedRect
+                stop.pointee = true
+            }
+            guard let lineRect else { continue }
             let x = textContainerOrigin.x + bulletIndentX
             let y = lineRect.origin.y + textContainerOrigin.y + (lineRect.height - bulletDiameter) / 2
             let dot = NSRect(x: x, y: y, width: bulletDiameter, height: bulletDiameter)
