@@ -31,15 +31,24 @@ public enum BlockDecorations {
     /// codex-check review of this task's diff) -- so the leading
     /// whitespace is deliberately excluded here and left for Pass 0's
     /// normal styling to render at its real character width.
+    /// `depth` is the item's nesting level, derived from the leading
+    /// whitespace `listRx`'s `^\s*` captured ahead of the marker glyph: 2
+    /// spaces OR 1 tab count as one level (`leadingSpaces / 2 +
+    /// leadingTabs`, integer division). A top-level item (no leading
+    /// whitespace) is depth 0. Consumed by `MarkdownTextView.restyle()` to
+    /// scale both the paragraph's hanging indent and the drawn bullet's x
+    /// position per nesting level, so deeper items visually step in.
     public struct ListItem: Equatable {
         public let markerRange: NSRange
         public let lineRange: NSRange
         public let isOrdered: Bool
+        public let depth: Int
 
-        public init(markerRange: NSRange, lineRange: NSRange, isOrdered: Bool) {
+        public init(markerRange: NSRange, lineRange: NSRange, isOrdered: Bool, depth: Int) {
             self.markerRange = markerRange
             self.lineRange = lineRange
             self.isOrdered = isOrdered
+            self.depth = depth
         }
     }
 
@@ -75,12 +84,19 @@ public enum BlockDecorations {
             // Strip the regex's optional leading `\s*` (nesting
             // indentation) from the range that gets hidden/bulleted -- see
             // `ListItem.markerRange`'s doc comment above.
-            let leadingWhitespace = markerText.prefix(while: { $0.isWhitespace }).utf16.count
+            let leadingWhitespaceChars = markerText.prefix(while: { $0.isWhitespace })
+            let leadingWhitespace = leadingWhitespaceChars.utf16.count
             let markerRange = NSRange(
                 location: span.range.location + leadingWhitespace,
                 length: span.range.length - leadingWhitespace)
             let lineRange = ns.paragraphRange(for: span.range)
-            items.append(ListItem(markerRange: markerRange, lineRange: lineRange, isOrdered: isOrdered))
+            // Depth from the same leading-whitespace slice -- see
+            // `ListItem.depth`'s doc comment above for the 2-spaces-or-1-tab
+            // rule.
+            let spaceCount = leadingWhitespaceChars.filter { $0 == " " }.count
+            let tabCount = leadingWhitespaceChars.filter { $0 == "\t" }.count
+            let depth = spaceCount / 2 + tabCount
+            items.append(ListItem(markerRange: markerRange, lineRange: lineRange, isOrdered: isOrdered, depth: depth))
         }
         return items
     }

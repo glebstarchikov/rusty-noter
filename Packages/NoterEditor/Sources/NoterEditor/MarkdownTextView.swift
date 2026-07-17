@@ -94,6 +94,15 @@ public struct MarkdownTextView: NSViewRepresentable {
         /// places the drawn bullet inside this gap -- see its doc comment.
         private static let listIndent: CGFloat = 22
 
+        /// Extra indent (pt) added per `ListItem.depth` level, on top of
+        /// `listIndent`, so nested items step in under their parent (Fix:
+        /// nested lists were rendering at a flat indent regardless of
+        /// depth). Applied both to the paragraph indent below and -- via
+        /// `BulletMarker.x`, resolved once here since only this loop knows
+        /// each item's depth -- to the drawn bullet's x, so the bullet
+        /// always sits inside its item's hanging-indent gap.
+        private static let listDepthStep: CGFloat = 18
+
         init(_ parent: MarkdownTextView) { self.parent = parent }
 
         public func textDidChange(_ notification: Notification) {
@@ -246,13 +255,19 @@ public struct MarkdownTextView: NSViewRepresentable {
             // once the cursor leaves the item -- never both a raw "- " and
             // a drawn bullet at once.
             let listItems = BlockDecorations.listItems(spans: spans, text: textView.string)
-            var bulletMarkerRanges: [NSRange] = []
+            // (range, depth) per hidden unordered marker -- depth is
+            // resolved to the bullet's final drawn x below, once we know
+            // whether this is the production `MeasuredTextView` (only it
+            // has the geometry -- `bulletIndentX`, `textContainerOrigin`
+            // -- needed to resolve an absolute x).
+            var bulletMarkerEntries: [(range: NSRange, depth: Int)] = []
             for item in listItems {
                 guard NSMaxRange(item.lineRange) <= storage.length,
                       NSMaxRange(item.markerRange) <= storage.length else { continue }
                 let listStyle = NSMutableParagraphStyle()
-                listStyle.firstLineHeadIndent = Self.listIndent
-                listStyle.headIndent = Self.listIndent
+                let indent = Self.listIndent + CGFloat(item.depth) * Self.listDepthStep
+                listStyle.firstLineHeadIndent = indent
+                listStyle.headIndent = indent
                 storage.addAttribute(.paragraphStyle, value: listStyle, range: item.lineRange)
 
                 if item.isOrdered {
@@ -264,7 +279,7 @@ public struct MarkdownTextView: NSViewRepresentable {
                     storage.addAttribute(.foregroundColor, value: theme.faint, range: item.markerRange)
                 } else {
                     storage.addAttribute(.mdHidden, value: true, range: item.markerRange)
-                    bulletMarkerRanges.append(item.markerRange)
+                    bulletMarkerEntries.append((range: item.markerRange, depth: item.depth))
                 }
             }
             storage.endEditing()
@@ -290,7 +305,18 @@ public struct MarkdownTextView: NSViewRepresentable {
             if let measured = textView as? MeasuredTextView {
                 measured.theme = theme
                 measured.blockquoteRanges = BlockDecorations.blockquoteLineRanges(spans: spans)
-                measured.bulletRanges = bulletMarkerRanges
+                // Resolve each marker's final x here (Fix 1 part 3): this
+                // is the one place with both the per-item `depth` (this
+                // loop) and the view's own bullet geometry
+                // (`bulletIndentX`, `textContainerOrigin.x`) -- so
+                // `drawBackground` just paints at `x`, with no depth/step
+                // math of its own to duplicate or drift out of sync.
+                measured.bulletMarkers = bulletMarkerEntries.map { entry in
+                    BulletMarker(
+                        range: entry.range,
+                        x: measured.textContainerOrigin.x + measured.bulletIndentX
+                            + CGFloat(entry.depth) * Self.listDepthStep)
+                }
                 measured.needsDisplay = true
             }
         }
@@ -360,6 +386,18 @@ public struct MarkdownTextView: NSViewRepresentable {
     }
 }
 
+/// One hidden unordered-list marker's character range and the absolute x
+/// (in the view's own coordinate space -- already including
+/// `textContainerOrigin.x`, `bulletIndentX`, and the item's per-depth step)
+/// its drawn bullet belongs at. Resolved once in `Coordinator.restyle()`,
+/// the only place that knows each item's nesting depth alongside the
+/// view's bullet geometry, so `drawBackground` below just paints at `x`
+/// with no depth/indent-step arithmetic of its own to duplicate.
+struct BulletMarker {
+    let range: NSRange
+    let x: CGFloat
+}
+
 /// Caps the prose measure (content column max 680pt, design.md ~62ch) and
 /// left-aligns it to the 48pt title margin. Previously the column was centered,
 /// which pushed the body right of the left-aligned title. `textContainerInset`
@@ -373,19 +411,23 @@ final class MeasuredTextView: NSTextView {
     // MARK: - Block decoration drawing (R6e)
 
     /// Set by `Coordinator.restyle()` on every restyle -- the theme to draw
-    /// decorations with, and the character ranges of blockquote lines / hidden
-    /// unordered-list markers to paint a bar / bullet for. Purely a rendering
-    /// concern (never read back by restyle() or anything else), consumed only
-    /// by `drawBackground(in:)` below.
+    /// decorations with, and the character ranges of blockquote lines /
+    /// hidden unordered-list markers (each already carrying its resolved
+    /// draw-x, see `BulletMarker`) to paint a bar / bullet for. Purely a
+    /// rendering concern (never read back by restyle() or anything else),
+    /// consumed only by `drawBackground(in:)` below.
     var theme: EditorTheme?
     var blockquoteRanges: [NSRange] = []
-    var bulletRanges: [NSRange] = []
+    var bulletMarkers: [BulletMarker] = []
 
     /// Bullet's x-offset from `textContainerOrigin.x`, inside the
     /// `Coordinator.listIndent` (22pt) gap the hanging indent reserves for
     /// it -- deliberately less than that so the ~4pt bullet, plus its own
     /// gap to the indented item text, both fit inside the reserved space.
-    private let bulletIndentX: CGFloat = 8
+    /// `fileprivate`, not `private`: `Coordinator.restyle()` reads this to
+    /// resolve each `BulletMarker.x` (it also adds the per-depth step,
+    /// which only it knows) -- see the call site there.
+    fileprivate let bulletIndentX: CGFloat = 8
     private let bulletDiameter: CGFloat = 4
     /// Quote bar sits in the reserved 48pt left margin (`leftInset`),
     /// outside the text container entirely (negative = left of
@@ -416,7 +458,7 @@ final class MeasuredTextView: NSTextView {
     /// background/selection fill first, then decorations, then -- later in
     /// NSTextView's own draw pipeline -- glyphs on top) -- display-only,
     /// never touches the string, selection, or undo stack. `restyle()`
-    /// computes `blockquoteRanges`/`bulletRanges` from
+    /// computes `blockquoteRanges`/`bulletMarkers` from
     /// `MarkdownHighlighter.spans` via `BlockDecorations` and calls
     /// `needsDisplay = true`; this turns each character range into a
     /// screen rect via the layout manager and paints a decoration there.
@@ -450,8 +492,8 @@ final class MeasuredTextView: NSTextView {
     /// which is the fuller reserved-layout rect and can overshoot -- but
     /// that alone is NOT the fix: the spurious previous-line fragment
     /// still shows up as one of the enumerated fragments. Proven
-    /// empirically to matter for bullets specifically: `bulletRanges` is
-    /// only the marker's own 2-4 chars (`BlockDecorations.ListItem
+    /// empirically to matter for bullets specifically: `BulletMarker.range`
+    /// is only the marker's own 2-4 chars (`BlockDecorations.ListItem
     /// .markerRange`), 100% nulled glyphs, so it's the *only* fragment
     /// `enumerateLineFragments` reports for that range -- "take the first
     /// fragment" would silently draw the bullet on the wrong line every
@@ -483,6 +525,20 @@ final class MeasuredTextView: NSTextView {
     /// order, plus the one spurious leading fragment). List bullets draw
     /// once, at the first genuine fragment -- a wrapped list item's
     /// bullet always belongs on its marker's own (first) line.
+    ///
+    /// One geometry choice differs between the two decorations, though:
+    /// the blockquote loop below sizes each bar segment from the
+    /// enumeration closure's first parameter -- the line fragment's FULL
+    /// `rect` (the fuller, reserved-layout rect the doc above says can
+    /// overshoot) -- rather than the tight `usedRect` the original (R6e)
+    /// implementation used for both decorations. That overshoot is exactly
+    /// what's wanted here: full line-fragment rects partition the text
+    /// vertically with no gaps, so consecutive quoted lines' segments abut
+    /// into one continuous bar instead of leaving a line-spacing-sized
+    /// seam between them (`usedRect` is tight to the glyphs, which is
+    /// narrower than a line's full reserved height). Bullets keep using
+    /// `usedRect` for their y-centering below -- unaffected by this, and
+    /// deliberately not touched.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         guard let lm = layoutManager, let storage = textStorage else { return }
@@ -492,11 +548,14 @@ final class MeasuredTextView: NSTextView {
         for charRange in blockquoteRanges {
             guard charRange.location >= 0, NSMaxRange(charRange) <= storage.length else { continue }
             let glyphRange = lm.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
-            lm.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, fragGlyphRange, _ in
+            lm.enumerateLineFragments(forGlyphRange: glyphRange) { fragRect, _, _, fragGlyphRange, _ in
                 // Skip the spurious fragment inherited from the previous
                 // line -- see the doc comment above.
                 guard fragGlyphRange.location >= glyphRange.location else { return }
-                var barRect = usedRect
+                // Full line-fragment rect, not the tight `usedRect` -- see
+                // the doc comment above: full rects tile contiguously, so
+                // consecutive quote-line segments abut with no seam.
+                var barRect = fragRect
                 barRect.origin.y += self.textContainerOrigin.y
                 barRect.origin.x = self.textContainerOrigin.x + self.quoteBarIndentX
                 barRect.size.width = self.quoteBarWidth
@@ -506,7 +565,8 @@ final class MeasuredTextView: NSTextView {
             }
         }
 
-        for charRange in bulletRanges {
+        for marker in bulletMarkers {
+            let charRange = marker.range
             guard charRange.location >= 0, NSMaxRange(charRange) <= storage.length else { continue }
             // Widen marker-only charRange to its paragraph so there's real
             // content for the typesetter to anchor a genuine fragment to
@@ -520,9 +580,10 @@ final class MeasuredTextView: NSTextView {
                 stop.pointee = true
             }
             guard let lineRect else { continue }
-            let x = textContainerOrigin.x + bulletIndentX
+            // x arrives pre-resolved (per-depth step included) from
+            // `Coordinator.restyle()` -- see `BulletMarker`'s doc comment.
             let y = lineRect.origin.y + textContainerOrigin.y + (lineRect.height - bulletDiameter) / 2
-            let dot = NSRect(x: x, y: y, width: bulletDiameter, height: bulletDiameter)
+            let dot = NSRect(x: marker.x, y: y, width: bulletDiameter, height: bulletDiameter)
             bulletColor.setFill()
             NSBezierPath(ovalIn: dot).fill()
         }

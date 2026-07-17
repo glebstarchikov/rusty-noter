@@ -69,6 +69,19 @@ import Foundation
         #expect(items.count == 1)
         #expect(items[0].isOrdered == false)
         #expect(items[0].markerRange == range(of: "- ", in: text))
+        #expect(items[0].depth == 1, "2 leading spaces == one nesting level")
+    }
+
+    @Test func fourSpaceIndentedDashMarkerIsDepthTwo() {
+        // 2 spaces == one level, so 4 spaces == two levels -- a
+        // double-nested item.
+        let text = "    - double nested item\n"
+        let spans = MarkdownHighlighter.spans(in: text)
+        let items = BlockDecorations.listItems(spans: spans, text: text)
+        #expect(items.count == 1)
+        #expect(items[0].isOrdered == false)
+        #expect(items[0].markerRange == range(of: "- ", in: text))
+        #expect(items[0].depth == 2)
     }
 
     @Test func nestedMarkerRangeExcludesLeadingWhitespaceUnlikeTheRawHighlighterSpan() {

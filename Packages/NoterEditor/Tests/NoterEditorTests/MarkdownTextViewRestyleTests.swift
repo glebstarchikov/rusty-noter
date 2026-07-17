@@ -44,7 +44,7 @@ import AppKit
     /// Same wiring as `makeHarness`, but with the production `MeasuredTextView`
     /// subclass instead of a plain `NSTextView` -- needed for R6e's block
     /// decorations (list bullets / quote bars), since `restyle()` only stores
-    /// `blockquoteRanges`/`bulletRanges` when `textView as? MeasuredTextView`
+    /// `blockquoteRanges`/`bulletMarkers` when `textView as? MeasuredTextView`
     /// succeeds (a graceful no-op for plain `NSTextView`, which is why the
     /// other 20+ pre-R6e tests above don't need this and are left untouched).
     private func makeMeasuredHarness(
@@ -449,7 +449,7 @@ import AppKit
         let markerRange = range(of: "- ", in: text)
         #expect(textView.textStorage?.attribute(.mdHidden, at: markerRange.location, effectiveRange: nil) != nil,
                 "off-active unordered marker should be mdHidden so the drawn bullet is the only marker shown")
-        #expect(textView.bulletRanges == [markerRange])
+        #expect(textView.bulletMarkers.map(\.range) == [markerRange])
     }
 
     @Test func unorderedMarkerOnActiveParagraphIsRevealedWithNoDrawnBullet() {
@@ -465,7 +465,7 @@ import AppKit
                 "active unordered marker must not be hidden -- it's shown for editing")
         let color = storage.attribute(.foregroundColor, at: markerRange.location, effectiveRange: nil) as? NSColor
         #expect(color == EditorTheme.standard().faint)
-        #expect(!textView.bulletRanges.contains(markerRange),
+        #expect(!textView.bulletMarkers.contains(where: { $0.range == markerRange }),
                 "no bullet should be drawn for an active (revealed) marker -- would double up with the visible '- '")
     }
 
@@ -476,15 +476,15 @@ import AppKit
 
         textView.setSelectedRange(NSRange(location: range(of: "Other", in: text).location, length: 0))
         coordinator.restyle()
-        #expect(textView.bulletRanges == [markerRange])
+        #expect(textView.bulletMarkers.map(\.range) == [markerRange])
 
         textView.setSelectedRange(NSRange(location: range(of: "item one", in: text).location, length: 0))
         coordinator.restyle()
-        #expect(textView.bulletRanges.isEmpty)
+        #expect(textView.bulletMarkers.isEmpty)
 
         textView.setSelectedRange(NSRange(location: range(of: "Other", in: text).location, length: 0))
         coordinator.restyle()
-        #expect(textView.bulletRanges == [markerRange])
+        #expect(textView.bulletMarkers.map(\.range) == [markerRange])
     }
 
     @Test func orderedListMarkerIsNeverHiddenRegardlessOfCursorPosition() {
@@ -500,7 +500,7 @@ import AppKit
                     "ordered marker must never be hidden, cursor on \(anchor)")
             let color = storage.attribute(.foregroundColor, at: markerRange.location, effectiveRange: nil) as? NSColor
             #expect(color == EditorTheme.standard().faint)
-            #expect(textView.bulletRanges.isEmpty, "ordered items never get a drawn bullet")
+            #expect(textView.bulletMarkers.isEmpty, "ordered items never get a drawn bullet")
         }
     }
 
@@ -603,7 +603,7 @@ import AppKit
 
         let markerRange = range(of: "- ", in: text)
         #expect(textView.textStorage?.attribute(.mdHidden, at: markerRange.location, effectiveRange: nil) != nil)
-        #expect(textView.bulletRanges.contains(markerRange))
+        #expect(textView.bulletMarkers.contains(where: { $0.range == markerRange }))
 
         let glyphRange = lm.glyphRange(forCharacterRange: markerRange, actualCharacterRange: nil)
         let markerRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
