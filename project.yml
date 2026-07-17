@@ -29,6 +29,7 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Rusty Noter
+        CFBundleIconName: AppIcon
         LSApplicationCategoryType: public.app-category.productivity
         NSHumanReadableCopyright: "© 2026 Gleb Starchikov"
         LSMinimumSystemVersion: "26.0"
@@ -36,4 +37,5 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: nl.glebstarchikov.RustyNoter
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: false
