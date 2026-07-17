@@ -20,6 +20,12 @@ public struct EditorTheme: @unchecked Sendable {
     public let accent: NSColor
     public let bg: NSColor
     public let codeBackground: NSColor
+    /// design.md's structural-emphasis token ("Borders are the primary
+    /// structural device") -- used for the blockquote left-bar (R6e): a
+    /// vertical rule reads as structure, not de-emphasized text, so this
+    /// fits its own design-system role better than `faint` (reserved for
+    /// "metadata, labels, placeholders").
+    public let borderStrong: NSColor
 
     @MainActor
     public static func standard() -> EditorTheme {
@@ -48,7 +54,8 @@ public struct EditorTheme: @unchecked Sendable {
             faint: named("faint", fallback: .tertiaryLabelColor),
             accent: named("accent", fallback: .controlAccentColor),
             bg: bgColor,
-            codeBackground: codePanel
+            codeBackground: codePanel,
+            borderStrong: named("borderStrong", fallback: .separatorColor)
         )
     }
 

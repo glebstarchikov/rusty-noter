@@ -71,6 +71,29 @@ public struct MarkdownTextView: NSViewRepresentable {
         var parent: MarkdownTextView
         weak var textView: NSTextView?
 
+        /// True once this view has opted into TextKit 1 compatibility mode
+        /// (R6e hardening from the R6d review). The `.layoutManager` access
+        /// below is the documented migration trigger; AppKit itself caches
+        /// the result internally (repeat access is empirically a cheap
+        /// no-op -- see task-6d-report.md), but this flag stops `restyle()`
+        /// from depending on that AppKit-level caching every call. The
+        /// migration, delegate wiring, and `backgroundLayoutEnabled` setup
+        /// now run exactly once per Coordinator -- one Coordinator serves
+        /// one `textView` for its whole lifetime (`makeCoordinator()` is
+        /// called once by SwiftUI, and `textView` is assigned once in
+        /// `makeNSView`) -- not once per restyle() call.
+        private var isTextKit1Ready = false
+        private weak var cachedLayoutManager: NSLayoutManager?
+
+        /// Hanging indent (pt) applied to every list item's full paragraph
+        /// range, ordered and unordered alike (R6e Parts 2/3): using the
+        /// same value for both `firstLineHeadIndent` and `headIndent` means
+        /// that once an unordered marker is hidden (glyph-nulled to zero
+        /// width), wrapped continuation lines align under the item's text
+        /// rather than under the bullet. `MeasuredTextView.bulletIndentX`
+        /// places the drawn bullet inside this gap -- see its doc comment.
+        private static let listIndent: CGFloat = 22
+
         init(_ parent: MarkdownTextView) { self.parent = parent }
 
         public func textDidChange(_ notification: Notification) {
@@ -96,29 +119,31 @@ public struct MarkdownTextView: NSViewRepresentable {
             guard let textView, let storage = textView.textStorage else { return }
             let theme = parent.theme
 
-            // Opt this view into TextKit 1 compatibility mode: accessing
-            // `.layoutManager` is the documented trigger (still verified
-            // working on macOS 26) for a TextKit-2-default NSTextView to
-            // migrate to an NSLayoutManager, which is required for the
-            // shouldGenerateGlyphs delegate hook below to ever fire.
-            // Idempotent and cheap once already opted in -- verified
-            // empirically that repeat access re-fires no notification and
-            // does no extra work -- so it's safe to call on every restyle().
-            let layoutManager = textView.layoutManager
-            if layoutManager?.delegate !== self {
-                layoutManager?.delegate = self
+            // Opt this view into TextKit 1 compatibility mode, once (R6e
+            // hardening -- see `isTextKit1Ready`'s doc comment above).
+            // Accessing `.layoutManager` is the documented trigger (still
+            // verified working on macOS 26) for a TextKit-2-default
+            // NSTextView to migrate to an NSLayoutManager, which is
+            // required for the shouldGenerateGlyphs delegate hook below to
+            // ever fire.
+            if !isTextKit1Ready, let migrated = textView.layoutManager {
+                migrated.delegate = self
+                // `backgroundLayoutEnabled` defaults to true, which per
+                // Apple's docs means glyph generation/layout may be
+                // deferred to idle run-loop time rather than happening
+                // immediately -- but that idle work still runs on the main
+                // thread ("Background layout occurs on the main thread when
+                // it is idle"), not a background *thread*. Turning it off
+                // removes any ambiguity: it makes layout for this view
+                // fully synchronous, so `shouldGenerateGlyphs`/`setGlyphs`
+                // below -- which read `NSTextStorage` and are not
+                // thread-safe -- are guaranteed to run on the @MainActor
+                // this Coordinator is isolated to.
+                migrated.backgroundLayoutEnabled = false
+                cachedLayoutManager = migrated
+                isTextKit1Ready = true
             }
-            // `backgroundLayoutEnabled` defaults to true, which per Apple's
-            // docs means glyph generation/layout may be deferred to idle
-            // run-loop time rather than happening immediately -- but that
-            // idle work still runs on the main thread ("Background layout
-            // occurs on the main thread when it is idle"), not a
-            // background *thread*. Turning it off removes any ambiguity:
-            // it makes layout for this view fully synchronous, so
-            // `shouldGenerateGlyphs`/`setGlyphs` below -- which read
-            // `NSTextStorage` and are not thread-safe -- are guaranteed to
-            // run on the @MainActor this Coordinator is isolated to.
-            layoutManager?.backgroundLayoutEnabled = false
+            let layoutManager = cachedLayoutManager
 
             let full = NSRange(location: 0, length: storage.length)
             storage.beginEditing()
@@ -148,7 +173,7 @@ public struct MarkdownTextView: NSViewRepresentable {
                 case .link:
                     storage.addAttribute(.foregroundColor, value: theme.accent, range: span.range)
                 case .listMarker:
-                    storage.addAttribute(.foregroundColor, value: theme.faint, range: span.range)
+                    break // handled below: indent + ordered/unordered marker hide-vs-reveal (R6e)
                 case .blockquote:
                     let quoteStyle = NSMutableParagraphStyle()
                     quoteStyle.firstLineHeadIndent = 16
@@ -201,6 +226,47 @@ public struct MarkdownTextView: NSViewRepresentable {
                     }
                 }
             }
+            // Pass 3: list-item hanging indent (ordered + unordered) and the
+            // unordered marker's own hide-vs-reveal (R6e). `.listMarker`
+            // spans cover only the 2-4 char marker prefix, not the whole
+            // line, so the indent -- which must cover the full paragraph or
+            // wrapped continuation lines won't align under the item's text
+            // -- is applied over `BlockDecorations.ListItem.lineRange`
+            // rather than the raw span range (`BlockDecorations` also
+            // classifies ordered vs. unordered, which the span's kind alone
+            // can't do). Ordered markers ("1. ") keep their number always
+            // visible -- it's meaningful content, not decoration. Only
+            // unordered markers ("- "/"* "/"+ ") get the same
+            // mdHidden-off-active / faint-on-active treatment as
+            // .syntaxMarker spans above (reusing the same `activePara` and
+            // `SyntaxMarkerVisibility.isActive` check via a synthetic span,
+            // so "active" means the identical thing everywhere in this
+            // function), so the bullet drawn in
+            // `MeasuredTextView.drawBackground` is the only marker visible
+            // once the cursor leaves the item -- never both a raw "- " and
+            // a drawn bullet at once.
+            let listItems = BlockDecorations.listItems(spans: spans, text: textView.string)
+            var bulletMarkerRanges: [NSRange] = []
+            for item in listItems {
+                guard NSMaxRange(item.lineRange) <= storage.length,
+                      NSMaxRange(item.markerRange) <= storage.length else { continue }
+                let listStyle = NSMutableParagraphStyle()
+                listStyle.firstLineHeadIndent = Self.listIndent
+                listStyle.headIndent = Self.listIndent
+                storage.addAttribute(.paragraphStyle, value: listStyle, range: item.lineRange)
+
+                if item.isOrdered {
+                    storage.addAttribute(.foregroundColor, value: theme.faint, range: item.markerRange)
+                    continue
+                }
+                let markerSpan = MarkdownSpan(range: item.markerRange, kind: .listMarker)
+                if SyntaxMarkerVisibility.isActive(markerSpan, activeParagraph: activePara) {
+                    storage.addAttribute(.foregroundColor, value: theme.faint, range: item.markerRange)
+                } else {
+                    storage.addAttribute(.mdHidden, value: true, range: item.markerRange)
+                    bulletMarkerRanges.append(item.markerRange)
+                }
+            }
             storage.endEditing()
 
             // The delegate only re-runs when glyphs actually regenerate,
@@ -212,6 +278,21 @@ public struct MarkdownTextView: NSViewRepresentable {
             // notification, so this can't re-enter restyle()).
             layoutManager?.invalidateGlyphs(forCharacterRange: full, changeInLength: 0, actualCharacterRange: nil)
             layoutManager?.invalidateLayout(forCharacterRange: full, actualCharacterRange: nil)
+
+            // Hand the drawn-decoration ranges to the view (R6e): quote
+            // bars and list bullets are painted, not inserted into the
+            // string -- files-are-truth means the markdown text itself is
+            // never touched, so this is display-only geometry recomputed
+            // fresh every restyle() and consumed by
+            // `MeasuredTextView.drawBackground(in:)`. `as?` is nil (a
+            // graceful no-op) for the plain `NSTextView` the test harness
+            // uses -- only the production `MeasuredTextView` draws these.
+            if let measured = textView as? MeasuredTextView {
+                measured.theme = theme
+                measured.blockquoteRanges = BlockDecorations.blockquoteLineRanges(spans: spans)
+                measured.bulletRanges = bulletMarkerRanges
+                measured.needsDisplay = true
+            }
         }
 
         // MARK: - NSLayoutManagerDelegate (glyph-nulling, R6d Part 1)
@@ -289,6 +370,32 @@ final class MeasuredTextView: NSTextView {
     private let topInset: CGFloat = 40
     private let maxWidth: CGFloat = 680
 
+    // MARK: - Block decoration drawing (R6e)
+
+    /// Set by `Coordinator.restyle()` on every restyle -- the theme to draw
+    /// decorations with, and the character ranges of blockquote lines / hidden
+    /// unordered-list markers to paint a bar / bullet for. Purely a rendering
+    /// concern (never read back by restyle() or anything else), consumed only
+    /// by `drawBackground(in:)` below.
+    var theme: EditorTheme?
+    var blockquoteRanges: [NSRange] = []
+    var bulletRanges: [NSRange] = []
+
+    /// Bullet's x-offset from `textContainerOrigin.x`, inside the
+    /// `Coordinator.listIndent` (22pt) gap the hanging indent reserves for
+    /// it -- deliberately less than that so the ~4pt bullet, plus its own
+    /// gap to the indented item text, both fit inside the reserved space.
+    private let bulletIndentX: CGFloat = 8
+    private let bulletDiameter: CGFloat = 4
+    /// Quote bar sits in the reserved 48pt left margin (`leftInset`),
+    /// outside the text container entirely (negative = left of
+    /// `textContainerOrigin.x`) rather than inside the blockquote's own
+    /// 16pt headIndent gap -- there's ample clearance either way (16pt of
+    /// indent vs. this bar ending at container-origin -11), so no overlap
+    /// with the indented quote text regardless.
+    private let quoteBarIndentX: CGFloat = -14
+    private let quoteBarWidth: CGFloat = 3
+
     override var textContainerOrigin: NSPoint {
         NSPoint(x: leftInset, y: topInset)
     }
@@ -303,5 +410,61 @@ final class MeasuredTextView: NSTextView {
         textContainer?.size = NSSize(width: min(maxWidth, available),
                                      height: .greatestFiniteMagnitude)
         super.layout()
+    }
+
+    /// Paints block decorations BEHIND the text (`super` draws the standard
+    /// background/selection fill first, then decorations, then -- later in
+    /// NSTextView's own draw pipeline -- glyphs on top) -- display-only,
+    /// never touches the string, selection, or undo stack. `restyle()`
+    /// computes `blockquoteRanges`/`bulletRanges` from
+    /// `MarkdownHighlighter.spans` via `BlockDecorations` and calls
+    /// `needsDisplay = true`; this turns each character range into a
+    /// screen rect via the layout manager and paints a decoration there.
+    ///
+    /// Geometry APIs: `NSLayoutManager.glyphRange(forCharacterRange:
+    /// actualCharacterRange:)` and `boundingRect(forGlyphRange:in:)`.
+    /// Context7 has no real Apple AppKit/TextKit coverage (resolves to an
+    /// unrelated Web3 "AppKit" package -- confirmed again for this task,
+    /// same gap task-6d-report.md hit); cross-checked instead via
+    /// `objc2-app-kit` (Rust AppKit bindings that mirror Apple's actual
+    /// selectors), which confirms `glyphRangeForBoundingRect:inTextContainer:`
+    /// -- documented since Mac OS X 10.0 as this pair's exact inverse --
+    /// and, most concretely, both calls are already exercised successfully
+    /// by `MarkdownTextViewRestyleTests` against this exact TextKit-1
+    /// compatibility-mode setup (e.g.
+    /// `hiddenMarkerGlyphsCollapseToNearZeroWidthGeometrically`).
+    /// `hiddenUnorderedMarkerRunReportsCorrectLineGeometryForBulletPlacement`
+    /// in that file additionally proves the one assumption specific to this
+    /// task: a glyph-nulled (zero-width) marker run still reports its
+    /// line's correct Y/height, which is what makes deriving the bullet's
+    /// vertical position from the (hidden) marker's own bounding rect valid.
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard let lm = layoutManager, let tc = textContainer, let storage = textStorage else { return }
+        let barColor = theme?.borderStrong ?? .separatorColor
+        let bulletColor = theme?.faint ?? .tertiaryLabelColor
+
+        for charRange in blockquoteRanges {
+            guard charRange.location >= 0, NSMaxRange(charRange) <= storage.length else { continue }
+            let glyphRange = lm.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+            var barRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
+            barRect.origin.y += textContainerOrigin.y
+            barRect.origin.x = textContainerOrigin.x + quoteBarIndentX
+            barRect.size.width = quoteBarWidth
+            let radius = quoteBarWidth / 2
+            barColor.setFill()
+            NSBezierPath(roundedRect: barRect, xRadius: radius, yRadius: radius).fill()
+        }
+
+        for charRange in bulletRanges {
+            guard charRange.location >= 0, NSMaxRange(charRange) <= storage.length else { continue }
+            let glyphRange = lm.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+            let lineRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
+            let x = textContainerOrigin.x + bulletIndentX
+            let y = lineRect.origin.y + textContainerOrigin.y + (lineRect.height - bulletDiameter) / 2
+            let dot = NSRect(x: x, y: y, width: bulletDiameter, height: bulletDiameter)
+            bulletColor.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+        }
     }
 }

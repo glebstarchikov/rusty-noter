@@ -41,6 +41,27 @@ import AppKit
         return (coordinator, textView)
     }
 
+    /// Same wiring as `makeHarness`, but with the production `MeasuredTextView`
+    /// subclass instead of a plain `NSTextView` -- needed for R6e's block
+    /// decorations (list bullets / quote bars), since `restyle()` only stores
+    /// `blockquoteRanges`/`bulletRanges` when `textView as? MeasuredTextView`
+    /// succeeds (a graceful no-op for plain `NSTextView`, which is why the
+    /// other 20+ pre-R6e tests above don't need this and are left untouched).
+    private func makeMeasuredHarness(
+        text: String,
+        onEdit: @escaping (String) -> Void = { _ in }
+    ) -> (coordinator: MarkdownTextView.Coordinator, textView: MeasuredTextView) {
+        var current = text
+        let binding = Binding<String>(get: { current }, set: { current = $0 })
+        let view = MarkdownTextView(text: binding, theme: .standard(), onEdit: onEdit)
+        let coordinator = view.makeCoordinator()
+        let textView = MeasuredTextView()
+        textView.string = text
+        textView.delegate = coordinator
+        coordinator.textView = textView
+        return (coordinator, textView)
+    }
+
     @Test func hiddenMarkerIsMarkedMdHiddenActiveMarkerStaysNormalAndFaint() {
         let text = "# Title\n\nSome **bold** text.\n"
         let (coordinator, textView) = makeHarness(text: text)
@@ -392,5 +413,201 @@ import AppKit
         let drag = NSRange(location: headingMarker.location, length: headingMarker.length)
         textView.setSelectedRange(drag)
         #expect(textView.selectedRange() == drag, "a non-empty selection spanning a hidden run must not be redirected")
+    }
+
+    // MARK: - R6e: block decorations (list bullets + quote bars)
+
+    @Test func layoutManagerDelegateWiringSurvivesMultipleRestyleCallsAfterHardening() {
+        // R6e hardening: the TextKit-1 opt-in + delegate wiring now runs
+        // once, guarded by `isTextKit1Ready`, not on every restyle() call.
+        // Prove the guarded path still correctly wires -- and stays wired
+        // -- across many calls; the risk with a flag-guarded one-time setup
+        // is an off-by-one bug that skips the wiring entirely.
+        let text = "# Title\n\nSome **bold** text.\n"
+        let (coordinator, textView) = makeHarness(text: text)
+        for _ in 0..<5 {
+            coordinator.restyle()
+        }
+        #expect(textView.layoutManager?.delegate === coordinator,
+                "delegate should be wired by the guarded one-time setup and stay wired across repeat restyle() calls")
+        #expect(textView.layoutManager?.backgroundLayoutEnabled == false)
+    }
+
+    @Test func restyleNeverMutatesTheStringForListsOrBlockquotes() {
+        let text = "- item one\n1. item two\n> a quote\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        coordinator.restyle()
+        #expect(textView.string == text, "restyle() must never mutate the markdown source -- decorations are drawing-only")
+    }
+
+    @Test func unorderedMarkerOffActiveParagraphIsHiddenWithADrawnBullet() {
+        let text = "- item one\n\nOther paragraph.\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        textView.setSelectedRange(NSRange(location: range(of: "Other", in: text).location, length: 0))
+        coordinator.restyle()
+
+        let markerRange = range(of: "- ", in: text)
+        #expect(textView.textStorage?.attribute(.mdHidden, at: markerRange.location, effectiveRange: nil) != nil,
+                "off-active unordered marker should be mdHidden so the drawn bullet is the only marker shown")
+        #expect(textView.bulletRanges == [markerRange])
+    }
+
+    @Test func unorderedMarkerOnActiveParagraphIsRevealedWithNoDrawnBullet() {
+        let text = "- item one\n\nOther paragraph.\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        // Cursor ON the list item -> marker should be revealed (faint), not hidden.
+        textView.setSelectedRange(NSRange(location: range(of: "item one", in: text).location, length: 0))
+        coordinator.restyle()
+
+        let markerRange = range(of: "- ", in: text)
+        let storage = textView.textStorage!
+        #expect(storage.attribute(.mdHidden, at: markerRange.location, effectiveRange: nil) == nil,
+                "active unordered marker must not be hidden -- it's shown for editing")
+        let color = storage.attribute(.foregroundColor, at: markerRange.location, effectiveRange: nil) as? NSColor
+        #expect(color == EditorTheme.standard().faint)
+        #expect(!textView.bulletRanges.contains(markerRange),
+                "no bullet should be drawn for an active (revealed) marker -- would double up with the visible '- '")
+    }
+
+    @Test func bulletRevealFollowsCursorInAndOutOfTheListItem() {
+        let text = "- item one\n\nOther paragraph.\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        let markerRange = range(of: "- ", in: text)
+
+        textView.setSelectedRange(NSRange(location: range(of: "Other", in: text).location, length: 0))
+        coordinator.restyle()
+        #expect(textView.bulletRanges == [markerRange])
+
+        textView.setSelectedRange(NSRange(location: range(of: "item one", in: text).location, length: 0))
+        coordinator.restyle()
+        #expect(textView.bulletRanges.isEmpty)
+
+        textView.setSelectedRange(NSRange(location: range(of: "Other", in: text).location, length: 0))
+        coordinator.restyle()
+        #expect(textView.bulletRanges == [markerRange])
+    }
+
+    @Test func orderedListMarkerIsNeverHiddenRegardlessOfCursorPosition() {
+        let text = "1. item one\n\nOther paragraph.\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        let markerRange = range(of: "1. ", in: text)
+        let storage = textView.textStorage!
+
+        for anchor in ["item one", "Other"] {
+            textView.setSelectedRange(NSRange(location: range(of: anchor, in: text).location, length: 0))
+            coordinator.restyle()
+            #expect(storage.attribute(.mdHidden, at: markerRange.location, effectiveRange: nil) == nil,
+                    "ordered marker must never be hidden, cursor on \(anchor)")
+            let color = storage.attribute(.foregroundColor, at: markerRange.location, effectiveRange: nil) as? NSColor
+            #expect(color == EditorTheme.standard().faint)
+            #expect(textView.bulletRanges.isEmpty, "ordered items never get a drawn bullet")
+        }
+    }
+
+    @Test func listItemIndentCoversTheWholeLineIncludingTextAfterTheMarker() {
+        let text = "- a longer item with real content after the marker\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        coordinator.restyle()
+
+        let storage = textView.textStorage!
+        let farIntoTheText = range(of: "content after", in: text).location
+        let style = storage.attribute(.paragraphStyle, at: farIntoTheText, effectiveRange: nil) as? NSParagraphStyle
+        #expect(style?.firstLineHeadIndent == 22, "the indent must reach text well past the marker, not just the marker itself")
+        #expect(style?.headIndent == 22)
+    }
+
+    @Test func orderedListItemAlsoGetsTheHangingIndentWithNumberKept() {
+        let text = "1. a longer ordered item with real content\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        coordinator.restyle()
+
+        let storage = textView.textStorage!
+        let farIntoTheText = range(of: "real content", in: text).location
+        let style = storage.attribute(.paragraphStyle, at: farIntoTheText, effectiveRange: nil) as? NSParagraphStyle
+        #expect(style?.firstLineHeadIndent == 22)
+        #expect(style?.headIndent == 22)
+    }
+
+    @Test func aParagraphThatStopsBeingAListItemRevertsToDefaultIndent() {
+        // Pass 0 resets every paragraph's style to `.default` on every
+        // restyle() call, so a plain paragraph (never a list item here)
+        // must never pick up the list indent -- guards against the R6e
+        // Pass 3 loop leaking indent onto ranges it shouldn't touch.
+        let text = "plain paragraph now\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        coordinator.restyle()
+        let storage = textView.textStorage!
+        let style = storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        #expect(style?.firstLineHeadIndent == 0)
+        #expect(style?.headIndent == 0)
+    }
+
+    @Test func blockquoteIndentIsUnchangedByTheR6eListChanges() {
+        // Regression guard: R6e's Pass 3 sits right next to the pre-existing
+        // blockquote paragraph-style handling in restyle() -- confirm it's
+        // still untouched (16pt, as shipped in the "code chips, blockquote
+        // indent" commit) since that indent already leaves room for the
+        // drawn bar (which sits outside the container entirely).
+        let text = "> a quote line\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        coordinator.restyle()
+        let storage = textView.textStorage!
+        let style = storage.attribute(.paragraphStyle, at: range(of: "quote", in: text).location, effectiveRange: nil) as? NSParagraphStyle
+        #expect(style?.firstLineHeadIndent == 16)
+        #expect(style?.headIndent == 16)
+    }
+
+    @Test func blockquoteRangesArePopulatedFromBlockquoteSpansAfterRestyle() {
+        let text = "> line one\n> line two\nnot a quote\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        coordinator.restyle()
+        let expected = BlockDecorations.blockquoteLineRanges(spans: MarkdownHighlighter.spans(in: text))
+        #expect(textView.blockquoteRanges == expected)
+        #expect(textView.blockquoteRanges.count == 2, "one bar segment per source quote line -- see BlockDecorationsTests for why these aren't merged")
+    }
+
+    // Note: restyle() also sets `measured.needsDisplay = true` after
+    // computing decorations (confirmed by reading the diff -- a single,
+    // unambiguous line). Not separately unit-tested: verified empirically
+    // that `NSView.needsDisplay` only reads back `true` once a view is
+    // installed in a real `NSWindow` -- a fresh, windowless `NSTextView()`
+    // with `needsDisplay = true` set reads back `false` even with a
+    // non-zero frame -- so this specific flag is unprovable in the
+    // windowless harness every other test in this file deliberately uses.
+    // The invariant that actually matters -- that the stored ranges
+    // themselves are fresh on every call, not just that some flag flipped
+    // -- is covered by `bulletRevealFollowsCursorInAndOutOfTheListItem`.
+
+    @Test func hiddenUnorderedMarkerRunReportsCorrectLineGeometryForBulletPlacement() {
+        // The bullet's vertical position (MeasuredTextView.drawBackground)
+        // is derived from boundingRect(for: the hidden marker's OWN char
+        // range) -- valid only if that rect's HEIGHT stays the normal line
+        // height rather than collapsing, unlike the fenced-code-fence-line
+        // case (a full-line marker deliberately clamped to 0.01 elsewhere
+        // in restyle() -- a `.listMarker` span is a *partial*-line marker
+        // and must never hit that clamp). Width should still collapse
+        // near-zero, same mechanism as any other hidden marker.
+        let text = "Body paragraph one.\n\n- item one\n"
+        let (coordinator, textView) = makeMeasuredHarness(text: text)
+        textView.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+        textView.textContainer?.size = NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude)
+        // Cursor on the OTHER paragraph -> the list item is off-active -> its marker hides.
+        textView.setSelectedRange(NSRange(location: range(of: "Body", in: text).location, length: 0))
+        coordinator.restyle()
+
+        guard let lm = textView.layoutManager, let tc = textView.textContainer else {
+            Issue.record("no layout manager / text container available headlessly")
+            return
+        }
+        lm.ensureLayout(for: tc)
+
+        let markerRange = range(of: "- ", in: text)
+        #expect(textView.textStorage?.attribute(.mdHidden, at: markerRange.location, effectiveRange: nil) != nil)
+        #expect(textView.bulletRanges.contains(markerRange))
+
+        let glyphRange = lm.glyphRange(forCharacterRange: markerRange, actualCharacterRange: nil)
+        let markerRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
+        #expect(markerRect.width < 1, "hidden marker glyphs should still collapse to near-zero width, got \(markerRect.width)")
+        #expect(markerRect.height > 1, "the marker's line height must NOT collapse (unlike a fully-nulled fence line) -- got \(markerRect.height)")
     }
 }
