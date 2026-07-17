@@ -79,8 +79,21 @@ final class AppModel {
         let stream = coordinator.updates
         Task { [weak self] in
             for await snapshot in stream {
-                self?.notes = snapshot
-                await self?.runSearch()
+                guard let self else { return }
+                // Animate the list only when the set of notes changes (a note
+                // created or deleted), never on content edits: autosave
+                // republishes a snapshot on every debounce and must not churn
+                // the list. System Reduce Motion opts out.
+                let membershipChanged =
+                    Set(snapshot.map(\.relativePath)) != Set(self.notes.map(\.relativePath))
+                if membershipChanged, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: 0.45)) {
+                        self.notes = snapshot
+                    }
+                } else {
+                    self.notes = snapshot
+                }
+                await self.runSearch()
             }
         }
     }

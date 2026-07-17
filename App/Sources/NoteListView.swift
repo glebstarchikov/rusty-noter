@@ -3,6 +3,7 @@ import NoterCore
 
 struct NoteListView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var listFocused: Bool
 
     /// Visible notes flattened in render order, so arrow keys can walk the
@@ -32,6 +33,8 @@ struct NoteListView: View {
                                         model.select(note.relativePath)
                                         listFocused = true
                                     }
+                                    .transition(reduceMotion ? .identity
+                                        : .opacity.combined(with: .offset(y: -10)))
                             }
                         } header: {
                             if !section.title.isEmpty {
@@ -112,6 +115,7 @@ struct NoteListView: View {
 
 private struct NoteRow: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let note: Note
     let selected: Bool
     @State private var hovering = false
@@ -154,6 +158,7 @@ private struct NoteRow: View {
         // Cmd+N inserts a note at the top), so the previously hovered row would
         // keep its hover fill and read as a phantom second selection.
         .onChange(of: model.selectedPath) { hovering = false }
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: selected)
     }
 }
