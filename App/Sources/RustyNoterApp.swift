@@ -67,6 +67,10 @@ struct MainSplitView: View {
             // content column; the crafted mono wordmark in the sidebar is now the
             // app identity. Visual-only — accessibility + Window menu keep it.
             .toolbar(removing: .title)
+            // Paint the toolbar the same color as the content so the tonal seam
+            // between the translucent toolbar material and the opaque content
+            // disappears — seamless top, and opaque so nothing bleeds under it.
+            .toolbarBackground(TokenColor.bg, for: .windowToolbar)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
