@@ -11,11 +11,12 @@ import Foundation
     }
     var now: Date { Date.iso8601Local("2026-07-14T12:00:00+00:00")! }
 
-    func note(_ path: String, updated: String, title: String = "N") -> Note {
+    func note(_ path: String, updated: String, title: String = "N", pinned: Bool = false) -> Note {
         Note(relativePath: path,
              metadata: NoteMetadata(title: title,
                                     created: Date.iso8601Local(updated)!,
-                                    updated: Date.iso8601Local(updated)!),
+                                    updated: Date.iso8601Local(updated)!,
+                                    pinned: pinned),
              body: "")
     }
 
@@ -78,5 +79,35 @@ import Foundation
             for: Date.iso8601Local("2026-07-10T09:00:00+00:00")!, now: now, calendar: utc) == "Jul 10")
         #expect(NoteGrouping.rowDateLabel(
             for: Date.iso8601Local("2025-12-30T09:00:00+00:00")!, now: now, calendar: utc) == "2025-12-30")
+    }
+
+    @Test func pinnedNotesGoInPinnedSectionFirst() {
+        let notes = [
+            note("t.md", updated: "2026-07-14T09:00:00+00:00"),               // today
+            note("p.md", updated: "2026-05-01T09:00:00+00:00", pinned: true), // old, but pinned
+        ]
+        let sections = NoteGrouping.sections(notes: notes, now: now, calendar: utc)
+        #expect(sections.first?.title == "Pinned")
+        #expect(sections.first?.notes.map(\.relativePath) == ["p.md"])
+        // Pinned note is excluded from the time buckets:
+        #expect(!sections.dropFirst().contains { $0.notes.contains { $0.relativePath == "p.md" } })
+        // Unpinned note is still bucketed normally:
+        #expect(sections.map(\.title).contains("Today"))
+    }
+
+    @Test func pinnedSectionSortsByUpdatedDesc() {
+        let notes = [
+            note("a.md", updated: "2026-07-10T09:00:00+00:00", pinned: true),
+            note("b.md", updated: "2026-07-12T09:00:00+00:00", pinned: true),
+        ]
+        let pinned = NoteGrouping.sections(notes: notes, now: now, calendar: utc).first
+        #expect(pinned?.title == "Pinned")
+        #expect(pinned?.notes.map(\.relativePath) == ["b.md", "a.md"])
+    }
+
+    @Test func noPinnedSectionWhenNonePinned() {
+        let sections = NoteGrouping.sections(
+            notes: [note("t.md", updated: "2026-07-14T09:00:00+00:00")], now: now, calendar: utc)
+        #expect(!sections.map(\.title).contains("Pinned"))
     }
 }

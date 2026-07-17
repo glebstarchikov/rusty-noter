@@ -18,9 +18,13 @@ public enum NoteGrouping {
     }
 
     public static func sections(notes: [Note], now: Date, calendar: Calendar) -> [NoteSection] {
+        // Pinned notes get their own section on top and are excluded from the
+        // time buckets, so a pinned note never also appears under Today/etc.
+        let pinnedNotes = notes.filter { $0.metadata.pinned }
+        let unpinnedNotes = notes.filter { !$0.metadata.pinned }
         let startOfToday = calendar.startOfDay(for: now)
         var buckets: [Bucket: [Note]] = [:]
-        for note in notes {
+        for note in unpinnedNotes {
             let day = calendar.startOfDay(for: note.metadata.updated)
             let daysAgo = calendar.dateComponents([.day], from: day, to: startOfToday).day ?? 99999
             let bucket: Bucket
@@ -40,6 +44,9 @@ public enum NoteGrouping {
         }
 
         var result: [NoteSection] = []
+        if !pinnedNotes.isEmpty {
+            result.append(NoteSection(title: "Pinned", notes: sorted(pinnedNotes)))
+        }
         for (bucket, title) in [(Bucket.today, "Today"), (.yesterday, "Yesterday"),
                                 (.prev7, "Previous 7 Days"), (.prev30, "Previous 30 Days")] {
             if let notes = buckets[bucket], !notes.isEmpty {

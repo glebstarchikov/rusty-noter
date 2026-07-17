@@ -156,6 +156,27 @@ final class AppModel {
         }
     }
 
+    /// Deletes a note (its file goes to Trash). If it was selected, move the
+    /// selection to the neighbouring note so the editor doesn't blank out.
+    func deleteNote(_ path: String) async {
+        guard let coordinator else { return }
+        let flat = noteSections.flatMap { $0.notes.map(\.relativePath) }
+        let next: String?
+        if let idx = flat.firstIndex(of: path) {
+            next = idx + 1 < flat.count ? flat[idx + 1] : (idx > 0 ? flat[idx - 1] : nil)
+        } else {
+            next = nil
+        }
+        try? await coordinator.deleteNote(path)
+        if selectedPath == path { selectedPath = next }
+    }
+
+    func togglePin(_ path: String) async {
+        guard let coordinator,
+              let note = notes.first(where: { $0.relativePath == path }) else { return }
+        try? await coordinator.setPinned(path, pinned: !note.metadata.pinned)
+    }
+
     func select(_ path: String?) { selectedPath = path }
 
     func runSearch() async {

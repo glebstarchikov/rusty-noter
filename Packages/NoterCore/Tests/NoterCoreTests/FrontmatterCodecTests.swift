@@ -157,4 +157,22 @@ import Foundation
         let tz = TimeZone(secondsFromGMT: 7200)!
         #expect(date!.iso8601LocalString(offset: tz) == "2026-07-11T09:30:00+02:00")
     }
+
+    @Test func pinnedRoundTrips() {
+        let d = Date.iso8601Local("2026-07-14T09:00:00+00:00")!
+        let meta = NoteMetadata(title: "P", created: d, updated: d, pinned: true)
+        let raw = FrontmatterCodec.serialize(metadata: meta, body: "hi")
+        #expect(raw.contains("pinned: true"))
+        let parsed = try? FrontmatterCodec.parse(raw)
+        #expect(parsed?.metadata.pinned == true)
+    }
+
+    @Test func unpinnedOmitsPinnedKey() {
+        let d = Date.iso8601Local("2026-07-14T09:00:00+00:00")!
+        let meta = NoteMetadata(title: "P", created: d, updated: d)
+        let raw = FrontmatterCodec.serialize(metadata: meta, body: "hi")
+        #expect(!raw.contains("pinned"))
+        let parsed = try? FrontmatterCodec.parse(raw)
+        #expect(parsed?.metadata.pinned == false)
+    }
 }

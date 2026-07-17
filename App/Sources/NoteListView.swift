@@ -50,6 +50,9 @@ struct NoteListView: View {
             .focusEffectDisabled()
             .focused($listFocused)
             .onMoveCommand { move($0) }
+            .onDeleteCommand {
+                if let path = model.selectedPath { Task { await model.deleteNote(path) } }
+            }
             .onChange(of: model.selectedPath) { _, newValue in
                 guard let newValue else { return }
                 proxy.scrollTo(newValue, anchor: .center)
@@ -124,6 +127,14 @@ private struct NoteRow: View {
         selected ? TokenColor.accentSoft : (hovering ? TokenColor.elevated : .clear)
     }
 
+    // Read pin state live from the model so the context-menu label reflects the
+    // current truth, not a value captured when the row first rendered (which
+    // goes stale in a LazyVStack, leaving the label stuck on "Pin").
+    private var isPinned: Bool {
+        model.notes.first { $0.relativePath == note.relativePath }?.metadata.pinned
+            ?? note.metadata.pinned
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -160,5 +171,14 @@ private struct NoteRow: View {
         .onChange(of: model.selectedPath) { hovering = false }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: selected)
+        .contextMenu {
+            Button(isPinned ? "Unpin" : "Pin") {
+                Task { await model.togglePin(note.relativePath) }
+            }
+            Divider()
+            Button("Delete", role: .destructive) {
+                Task { await model.deleteNote(note.relativePath) }
+            }
+        }
     }
 }

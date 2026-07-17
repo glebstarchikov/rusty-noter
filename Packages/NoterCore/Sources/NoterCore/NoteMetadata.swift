@@ -18,6 +18,7 @@ public struct NoteMetadata: Codable, Equatable, Sendable {
     public var audio: String?
     public var duration: String?
     public var status: RecordingStatus?
+    public var pinned: Bool
 
     public init(
         title: String,
@@ -27,7 +28,8 @@ public struct NoteMetadata: Codable, Equatable, Sendable {
         tags: [String] = [],
         audio: String? = nil,
         duration: String? = nil,
-        status: RecordingStatus? = nil
+        status: RecordingStatus? = nil,
+        pinned: Bool = false
     ) {
         self.title = title
         self.type = type
@@ -37,6 +39,7 @@ public struct NoteMetadata: Codable, Equatable, Sendable {
         self.audio = audio
         self.duration = duration
         self.status = status
+        self.pinned = pinned
     }
 }
 

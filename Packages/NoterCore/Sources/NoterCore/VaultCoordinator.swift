@@ -78,6 +78,24 @@ public actor VaultCoordinator {
         return note
     }
 
+    /// Moves the note to Trash (via the store), drops it from the index, and
+    /// republishes the list.
+    public func deleteNote(_ relativePath: String) async throws {
+        try await store.delete(relativePath)
+        try? await index.remove(relativePath)
+        scheduleIndexMd()
+        await publishSnapshot()
+    }
+
+    @discardableResult
+    public func setPinned(_ relativePath: String, pinned: Bool) async throws -> Note {
+        let note = try await store.setPinned(relativePath, pinned: pinned)
+        try? await index.upsert(note)
+        scheduleIndexMd()
+        await publishSnapshot()
+        return note
+    }
+
     public func search(_ query: String) async -> [String] {
         (try? await index.search(query)) ?? []
     }
