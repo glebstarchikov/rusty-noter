@@ -539,12 +539,36 @@ final class MeasuredTextView: NSTextView {
     /// narrower than a line's full reserved height). Bullets keep using
     /// `usedRect` for their y-centering below -- unaffected by this, and
     /// deliberately not touched.
+    ///
+    /// Abutting rects alone turned out not to be enough, though (Gleb
+    /// confirmed visually after that fix shipped): each segment was still
+    /// drawn as its OWN independently-rounded pill
+    /// (`NSBezierPath(roundedRect:xRadius:yRadius:)`), so two abutting
+    /// pills each round their own top/bottom corners right at the seam --
+    /// a visible pinch at every line boundary even with zero gap between
+    /// the rects. The blockquote loop below now collects every segment
+    /// rect instead of drawing it immediately, merges vertically-
+    /// contiguous ones into runs via `RectMerge.mergeVertically` (pure,
+    /// unit-tested), and draws ONE rounded rect per run -- so a
+    /// multi-line quote's interior line boundaries are straight edges,
+    /// and only the whole run's outer top/bottom corners are rounded.
+    /// Two genuinely separate quote blocks (a real paragraph gap between
+    /// them) stay separate runs, each with its own rounded bar.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         guard let lm = layoutManager, let storage = textStorage else { return }
         let barColor = theme?.borderStrong ?? .separatorColor
         let bulletColor = theme?.faint ?? .tertiaryLabelColor
 
+        // Collect every bar segment rect instead of drawing it immediately
+        // -- see the doc comment above: drawing each fragment as its own
+        // rounded pill pinches the bar inward at every line boundary, even
+        // where the rects themselves abut with no gap. `barSegments`
+        // gathers segments across ALL blockquote ranges (not per-range)
+        // since `RectMerge.mergeVertically` below sorts by Y itself, so a
+        // single merge pass correctly joins one quote's own lines while
+        // leaving a real paragraph gap between two separate quotes intact.
+        var barSegments: [NSRect] = []
         for charRange in blockquoteRanges {
             guard charRange.location >= 0, NSMaxRange(charRange) <= storage.length else { continue }
             let glyphRange = lm.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
@@ -559,10 +583,17 @@ final class MeasuredTextView: NSTextView {
                 barRect.origin.y += self.textContainerOrigin.y
                 barRect.origin.x = self.textContainerOrigin.x + self.quoteBarIndentX
                 barRect.size.width = self.quoteBarWidth
-                let radius = self.quoteBarWidth / 2
-                barColor.setFill()
-                NSBezierPath(roundedRect: barRect, xRadius: radius, yRadius: radius).fill()
+                barSegments.append(barRect)
             }
+        }
+        // One rounded rect per merged run -- see `RectMerge` and the doc
+        // comment above. 1.5pt tolerance absorbs sub-pixel/line-spacing
+        // slop between fragments that are visually contiguous but not
+        // bit-for-bit touching, well under a real paragraph gap.
+        let radius = quoteBarWidth / 2
+        for runRect in RectMerge.mergeVertically(barSegments, tolerance: 1.5) {
+            barColor.setFill()
+            NSBezierPath(roundedRect: runRect, xRadius: radius, yRadius: radius).fill()
         }
 
         for marker in bulletMarkers {
