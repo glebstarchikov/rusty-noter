@@ -33,11 +33,6 @@ struct EditorContainerView: View {
                 .padding(.horizontal, 48)
                 .padding(.top, 8)
 
-            Divider()
-                .overlay(TokenColor.border)
-                .padding(.horizontal, 48)
-                .padding(.top, 16)
-
             if changedOnDisk {
                 HStack(spacing: 8) {
                     Text("This note changed on disk.")
