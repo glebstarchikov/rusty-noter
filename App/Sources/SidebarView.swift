@@ -31,5 +31,19 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            // Crafted mono wordmark as the app identity, top of the sidebar.
+            // Mono is "the texture of the system" (design.md); lowercase, quiet.
+            HStack {
+                Text("rusty noter")
+                    .font(.system(size: 16, weight: .medium, design: .monospaced))
+                    .tracking(-0.3)
+                    .foregroundStyle(TokenColor.fg)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
+        }
     }
 }
