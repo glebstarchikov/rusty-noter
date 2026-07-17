@@ -405,7 +405,7 @@ struct BulletMarker {
 /// container width and override `textContainerOrigin` to pin the left edge.
 final class MeasuredTextView: NSTextView {
     private let leftInset: CGFloat = 48
-    private let topInset: CGFloat = 40
+    private let topInset: CGFloat = 24
     private let maxWidth: CGFloat = 680
 
     // MARK: - Block decoration drawing (R6e)

@@ -19,7 +19,7 @@ struct NoteListView: View {
         // is. Keyboard nav is preserved via `.focusable()` + `.onMoveCommand`.
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2, pinnedViews: [.sectionHeaders]) {
+                LazyVStack(alignment: .leading, spacing: 4, pinnedViews: [.sectionHeaders]) {
                     ForEach(model.noteSections) { section in
                         Section {
                             ForEach(section.notes) { note in
@@ -40,7 +40,7 @@ struct NoteListView: View {
                         }
                     }
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, 8)
             }
             .background(TokenColor.bg)
             .focusable()
@@ -60,8 +60,8 @@ struct NoteListView: View {
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(TokenColor.faint)
             .padding(.top, 8)
-            .padding(.bottom, 2)
-            .padding(.horizontal, 18) // aligns with the row title (8 outer + 10 inner)
+            .padding(.bottom, 4)
+            .padding(.horizontal, 16) // aligns with the row title (8 outer + 8 inner)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(TokenColor.bg) // opaque so pinned headers occlude scrolling rows
     }
@@ -111,6 +111,7 @@ struct NoteListView: View {
 }
 
 private struct NoteRow: View {
+    @Environment(AppModel.self) private var model
     let note: Note
     let selected: Bool
     @State private var hovering = false
@@ -120,7 +121,7 @@ private struct NoteRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(note.metadata.title.isEmpty ? "Untitled" : note.metadata.title)
                     .font(.system(size: 14, weight: .medium))
@@ -142,12 +143,17 @@ private struct NoteRow: View {
                     .lineLimit(1)
             }
         }
-        .padding(.vertical, 7)
-        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8).fill(fill))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        // Clear any stranded hover when the selection moves. SwiftUI's .onHover
+        // doesn't emit `false` when rows reorder under a stationary cursor (e.g.
+        // Cmd+N inserts a note at the top), so the previously hovered row would
+        // keep its hover fill and read as a phantom second selection.
+        .onChange(of: model.selectedPath) { hovering = false }
         .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }

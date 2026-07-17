@@ -22,7 +22,8 @@ struct EditorContainerView: View {
         VStack(spacing: 0) {
             TextField("Title", text: $draftTitle)
                 .textFieldStyle(.plain)
-                .font(.system(size: 24, weight: .semibold))
+                .font(.system(size: 26, weight: .semibold))
+                .tracking(-0.5) // -0.02em at 26pt, design.md display-size rule
                 .foregroundStyle(TokenColor.fg)
                 .padding(.horizontal, 48)
                 .padding(.top, 32)
