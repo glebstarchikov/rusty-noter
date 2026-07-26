@@ -22,11 +22,16 @@ struct EditorContainerView: View {
         VStack(spacing: 0) {
             TextField("Title", text: $draftTitle)
                 .textFieldStyle(.plain)
-                .font(.system(size: 24, weight: .semibold))
+                .font(.system(size: 26, weight: .semibold))
+                .tracking(-0.5) // -0.02em at 26pt, design.md display-size rule
                 .foregroundStyle(TokenColor.fg)
                 .padding(.horizontal, 48)
                 .padding(.top, 32)
                 .onSubmit { commitTitle() }
+
+            metadataSpine
+                .padding(.horizontal, 48)
+                .padding(.top, 8)
 
             if changedOnDisk {
                 HStack(spacing: 8) {
@@ -55,6 +60,22 @@ struct EditorContainerView: View {
                 if isDirty { changedOnDisk = true } else { reloadFromModel() }
             }
         }
+    }
+
+    private var metadataSpine: some View {
+        HStack(spacing: 8) {
+            Text(Slug.dayString(note.metadata.updated))
+            if !note.metadata.tags.isEmpty {
+                Text("·")
+                Text(note.metadata.tags.joined(separator: ", "))
+                    .lineLimit(1)
+            }
+            Text("·")
+            Text("\(WordCount.count(of: draftBody)) words")
+        }
+        .font(.system(size: 11, design: .monospaced))
+        .foregroundStyle(TokenColor.faint)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func loadNote() {

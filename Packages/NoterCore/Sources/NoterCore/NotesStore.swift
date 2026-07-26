@@ -70,6 +70,33 @@ public actor NotesStore {
         return note
     }
 
+    /// Moves the note's file to the macOS Trash (recoverable) and evicts it from
+    /// the cache. Files-are-truth: the note leaves the vault. A missing file is a
+    /// no-op evict rather than an error.
+    public func delete(_ relativePath: String) throws {
+        let url = vault.noteURL(relativePath)
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        }
+        cache[relativePath] = nil
+        unparseablePaths.remove(relativePath)
+        selfWriteContent[relativePath] = nil
+    }
+
+    /// Sets the pinned flag and rewrites the file. Deliberately does NOT touch
+    /// `updated` -- pinning is not an edit, so it must not reorder the note.
+    public func setPinned(_ relativePath: String, pinned: Bool) throws -> Note {
+        guard !unparseablePaths.contains(relativePath) else {
+            throw NotesStoreError.refusingToRewriteUnparseable
+        }
+        guard var note = cache[relativePath] else {
+            throw NotesStoreError.noteNotFound(relativePath)
+        }
+        note.metadata.pinned = pinned
+        try write(note)
+        return note
+    }
+
     public func reloadFromDisk(_ relativePath: String) throws -> Note? {
         guard FileManager.default.fileExists(atPath: vault.noteURL(relativePath).path) else {
             cache[relativePath] = nil

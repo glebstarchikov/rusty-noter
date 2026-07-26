@@ -56,7 +56,8 @@ public enum FrontmatterCodec {
             tags: parsed.tags ?? [],
             audio: parsed.audio,
             duration: parsed.duration,
-            status: parsed.status.flatMap(RecordingStatus.init(rawValue:))
+            status: parsed.status.flatMap(RecordingStatus.init(rawValue:)),
+            pinned: parsed.pinned ?? false
         )
         return (metadata, body)
     }
@@ -68,6 +69,7 @@ public enum FrontmatterCodec {
         lines.append("created: \(m.created.iso8601LocalString(offset: timeZone))")
         lines.append("updated: \(m.updated.iso8601LocalString(offset: timeZone))")
         lines.append("tags: [\(m.tags.map(yamlScalar).joined(separator: ", "))]")
+        if m.pinned { lines.append("pinned: true") }
         if let audio = m.audio { lines.append("audio: \(yamlScalar(audio))") }
         if let duration = m.duration { lines.append("duration: \(yamlScalar(duration))") }
         if let status = m.status { lines.append("status: \(status.rawValue)") }
@@ -104,4 +106,5 @@ private struct RawFrontmatter: Decodable {
     var audio: String?
     var duration: String?
     var status: String?
+    var pinned: Bool?
 }

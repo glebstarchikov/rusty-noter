@@ -7,6 +7,12 @@ func range(of substring: String, in text: String) -> NSRange {
     (text as NSString).range(of: substring)
 }
 
+/// Sub-range helpers for pinning marker glyph ranges against a known content range.
+extension NSRange {
+    func prefix(_ n: Int) -> NSRange { NSRange(location: location, length: n) }
+    func suffix(_ n: Int) -> NSRange { NSRange(location: NSMaxRange(self) - n, length: n) }
+}
+
 @Suite struct MarkdownHighlighterTests {
     @Test func headings() {
         let text = "# Title\n\n## Section two\n\nBody.\n"
@@ -87,5 +93,97 @@ func range(of substring: String, in text: String) -> NSRange {
         }
         // Middle content span is the code line, CR-free.
         #expect(codeBlockSpans.contains { (code as NSString).substring(with: $0.range) == "code here" })
+    }
+
+    // MARK: - Syntax-marker dimming (R6b)
+
+    @Test func emitsSyntaxMarkersForBold() {
+        let text = "a **bold** b\n"
+        let spans = MarkdownHighlighter.spans(in: text)
+        // content span unchanged:
+        #expect(spans.contains(MarkdownSpan(range: range(of: "**bold**", in: text), kind: .bold)))
+        // two marker spans, one per delimiter:
+        let markers = spans.filter { $0.kind == .syntaxMarker }.map(\.range)
+        #expect(markers.contains(range(of: "**bold**", in: text).prefix(2)))   // leading **
+        #expect(markers.contains(range(of: "**bold**", in: text).suffix(2)))   // trailing **
+    }
+
+    @Test func emitsSyntaxMarkerForHeadingHashes() {
+        let text = "## Title\n"
+        let spans = MarkdownHighlighter.spans(in: text)
+        #expect(spans.contains(MarkdownSpan(range: range(of: "## ", in: text), kind: .syntaxMarker)))
+        #expect(spans.contains(MarkdownSpan(range: range(of: "## Title", in: text), kind: .heading(level: 2))))
+    }
+
+    @Test func emitsSyntaxMarkersForInlineCode() {
+        let text = "run `code` now\n"
+        let markers = MarkdownHighlighter.spans(in: text).filter { $0.kind == .syntaxMarker }.map(\.range)
+        #expect(markers.count == 2) // the two backticks
+    }
+
+    @Test func emitsSyntaxMarkersForItalic() {
+        let text = "x *italic* y\n"
+        let spans = MarkdownHighlighter.spans(in: text)
+        let markers = spans.filter { $0.kind == .syntaxMarker }.map(\.range)
+        #expect(markers.contains(range(of: "*italic*", in: text).prefix(1)))
+        #expect(markers.contains(range(of: "*italic*", in: text).suffix(1)))
+    }
+
+    @Test func linkDimsBracketsAndUrlNotText() {
+        let text = "see [the spec](docs/x.md) end\n"
+        let spans = MarkdownHighlighter.spans(in: text)
+        #expect(spans.contains(MarkdownSpan(range: range(of: "[the spec](docs/x.md)", in: text), kind: .link)))
+        let markers = spans.filter { $0.kind == .syntaxMarker }.map(\.range)
+        // "[" dimmed:
+        #expect(markers.contains(range(of: "[", in: text)))
+        // "](docs/x.md)" dimmed (from ] through the closing paren):
+        #expect(markers.contains(range(of: "](docs/x.md)", in: text)))
+    }
+
+    @Test func blockquoteMarkerDimmed() {
+        let text = "> quiet line\n"
+        let markers = MarkdownHighlighter.spans(in: text).filter { $0.kind == .syntaxMarker }.map(\.range)
+        #expect(markers.contains(range(of: "> ", in: text)))
+    }
+
+    @Test func blockquoteMarkerAloneAngleBracket() {
+        let text = ">\nnext\n"
+        let markers = MarkdownHighlighter.spans(in: text).filter { $0.kind == .syntaxMarker }.map(\.range)
+        #expect(markers.contains(range(of: ">", in: text)))
+    }
+
+    @Test func codeFenceLineIsDimmedButContentLineIsNot() {
+        let text = "```\ncode line\n```\n"
+        let spans = MarkdownHighlighter.spans(in: text)
+        let openFence = NSRange(location: 0, length: 3)
+        let contentLine = range(of: "code line", in: text)
+        #expect(spans.contains(MarkdownSpan(range: openFence, kind: .syntaxMarker)))
+        #expect(!spans.contains(MarkdownSpan(range: contentLine, kind: .syntaxMarker)))
+    }
+
+    @Test func codeFenceWithLanguageTagIsRecognizedAndDimmed() {
+        // Mirrors the exact fence style used in the R6b smoke-test note
+        // ("```swift"), not just the bare "```" the other fence tests use.
+        let text = "```swift\nlet x = 1\n```\n"
+        let spans = MarkdownHighlighter.spans(in: text)
+        let codeBlockSpans = spans.filter { $0.kind == .codeBlock }
+        #expect(codeBlockSpans.count == 3) // opening fence, content line, closing fence
+        let openFence = range(of: "```swift", in: text)
+        #expect(spans.contains(MarkdownSpan(range: openFence, kind: .syntaxMarker)))
+        let contentLine = range(of: "let x = 1", in: text)
+        #expect(!spans.contains(MarkdownSpan(range: contentLine, kind: .syntaxMarker)))
+    }
+
+    @Test func listMarkersDoNotGetSyntaxMarker() {
+        let text = "- item one\n"
+        let spans = MarkdownHighlighter.spans(in: text)
+        #expect(spans.filter { $0.kind == .syntaxMarker }.isEmpty)
+    }
+
+    @Test func existingContentSpansUnchanged() {
+        // Regression guard: the 9 original behaviors still hold. Spot-check one:
+        let text = "x *italic* y\n"
+        #expect(MarkdownHighlighter.spans(in: text).contains(
+            MarkdownSpan(range: range(of: "*italic*", in: text), kind: .italic)))
     }
 }

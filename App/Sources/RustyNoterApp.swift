@@ -63,6 +63,10 @@ struct MainSplitView: View {
                 }
             }
             .background(TokenColor.bg)
+            // Drop the redundant system window title ("Rusty Noter") from the
+            // content column; the crafted mono wordmark in the sidebar is now the
+            // app identity. Visual-only — accessibility + Window menu keep it.
+            .toolbar(removing: .title)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {

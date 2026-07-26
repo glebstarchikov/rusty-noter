@@ -52,6 +52,16 @@ final class AppModel {
             .sorted { (order[$0.relativePath] ?? 0) < (order[$1.relativePath] ?? 0) }
     }
 
+    /// The visible notes grouped for display. When a search is active, grouping
+    /// is suppressed: results come back as one unlabeled, relevance-ordered
+    /// section (search is about relevance, not recency).
+    var noteSections: [NoteSection] {
+        if searchHits != nil {
+            return visibleNotes.isEmpty ? [] : [NoteSection(title: "", notes: visibleNotes)]
+        }
+        return NoteGrouping.sections(notes: visibleNotes, now: Date(), calendar: .current)
+    }
+
     var allTags: [String] {
         Array(Set(notes.flatMap { $0.metadata.tags })).sorted()
     }
@@ -69,8 +79,26 @@ final class AppModel {
         let stream = coordinator.updates
         Task { [weak self] in
             for await snapshot in stream {
-                self?.notes = snapshot
-                await self?.runSearch()
+                guard let self else { return }
+                // Animate the list only when its structure changes: a note
+                // created/deleted (membership), or pinned/unpinned (which moves
+                // a row between the Pinned section and its date bucket). Never
+                // animate on content edits — autosave republishes a snapshot on
+                // every debounce and must not churn the list. Reduce Motion opts out.
+                let membershipChanged =
+                    Set(snapshot.map(\.relativePath)) != Set(self.notes.map(\.relativePath))
+                let pinnedChanged =
+                    Set(snapshot.filter { $0.metadata.pinned }.map(\.relativePath))
+                    != Set(self.notes.filter { $0.metadata.pinned }.map(\.relativePath))
+                if membershipChanged || pinnedChanged,
+                   !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: 0.45)) {
+                        self.notes = snapshot
+                    }
+                } else {
+                    self.notes = snapshot
+                }
+                await self.runSearch()
             }
         }
     }
@@ -131,6 +159,27 @@ final class AppModel {
         if let note = try? await coordinator.createNote(title: "Untitled") {
             selectedPath = note.relativePath
         }
+    }
+
+    /// Deletes a note (its file goes to Trash). If it was selected, move the
+    /// selection to the neighbouring note so the editor doesn't blank out.
+    func deleteNote(_ path: String) async {
+        guard let coordinator else { return }
+        let flat = noteSections.flatMap { $0.notes.map(\.relativePath) }
+        let next: String?
+        if let idx = flat.firstIndex(of: path) {
+            next = idx + 1 < flat.count ? flat[idx + 1] : (idx > 0 ? flat[idx - 1] : nil)
+        } else {
+            next = nil
+        }
+        try? await coordinator.deleteNote(path)
+        if selectedPath == path { selectedPath = next }
+    }
+
+    func togglePin(_ path: String) async {
+        guard let coordinator,
+              let note = notes.first(where: { $0.relativePath == path }) else { return }
+        try? await coordinator.setPinned(path, pinned: !note.metadata.pinned)
     }
 
     func select(_ path: String?) { selectedPath = path }
