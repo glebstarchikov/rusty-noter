@@ -80,13 +80,18 @@ final class AppModel {
         Task { [weak self] in
             for await snapshot in stream {
                 guard let self else { return }
-                // Animate the list only when the set of notes changes (a note
-                // created or deleted), never on content edits: autosave
-                // republishes a snapshot on every debounce and must not churn
-                // the list. System Reduce Motion opts out.
+                // Animate the list only when its structure changes: a note
+                // created/deleted (membership), or pinned/unpinned (which moves
+                // a row between the Pinned section and its date bucket). Never
+                // animate on content edits — autosave republishes a snapshot on
+                // every debounce and must not churn the list. Reduce Motion opts out.
                 let membershipChanged =
                     Set(snapshot.map(\.relativePath)) != Set(self.notes.map(\.relativePath))
-                if membershipChanged, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                let pinnedChanged =
+                    Set(snapshot.filter { $0.metadata.pinned }.map(\.relativePath))
+                    != Set(self.notes.filter { $0.metadata.pinned }.map(\.relativePath))
+                if membershipChanged || pinnedChanged,
+                   !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                     withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: 0.45)) {
                         self.notes = snapshot
                     }
