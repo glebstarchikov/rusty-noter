@@ -8,7 +8,7 @@ struct SettingsView: View {
             Section("Vault") {
                 LabeledContent("Notes folder") {
                     Text(model.vaultPathDisplay)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(TokenFont.supporting.monospaced())
                         .foregroundStyle(TokenColor.secondary)
                         .textSelection(.enabled)
                 }
@@ -21,7 +21,7 @@ struct SettingsView: View {
                 }
                 .disabled(model.isSwitchingVault)
                 Text("The app generates INDEX.md, CLAUDE.md, and AGENTS.md at the folder root so AI agents can navigate your notes.")
-                    .font(.system(size: 11))
+                    .font(TokenFont.finePrint)
                     .foregroundStyle(TokenColor.faint)
             }
         }

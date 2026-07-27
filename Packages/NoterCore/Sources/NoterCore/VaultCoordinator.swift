@@ -78,6 +78,18 @@ public actor VaultCoordinator {
         return note
     }
 
+    public func updateDraft(
+        _ relativePath: String,
+        title: String,
+        body: String
+    ) async throws -> Note {
+        let note = try await store.updateDraft(relativePath, title: title, body: body)
+        try? await index.upsert(note)
+        scheduleIndexMd()
+        await publishSnapshot()
+        return note
+    }
+
     /// Moves the note to Trash (via the store), drops it from the index, and
     /// republishes the list.
     public func deleteNote(_ relativePath: String) async throws {

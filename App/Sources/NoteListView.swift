@@ -33,8 +33,7 @@ struct NoteListView: View {
                                         model.select(note.relativePath)
                                         listFocused = true
                                     }
-                                    .transition(reduceMotion ? .identity
-                                        : .opacity.combined(with: .offset(y: -10)))
+                                    .transition(reduceMotion ? .identity : .opacity)
                             }
                         } header: {
                             if !section.title.isEmpty {
@@ -63,7 +62,7 @@ struct NoteListView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 11, design: .monospaced))
+            .font(TokenFont.metadata)
             .foregroundStyle(TokenColor.faint)
             .padding(.top, 8)
             .padding(.bottom, 4)
@@ -95,19 +94,19 @@ struct NoteListView: View {
             // Empty state: one sentence, at most one action (design.md).
             if model.searchHits != nil {
                 Text("No notes match this search.")
-                    .font(.system(size: 13))
+                    .font(TokenFont.interface)
                     .foregroundStyle(TokenColor.secondary)
             } else if model.sidebarSelection != .all {
                 // A sidebar filter with no matches in a non-empty vault: a
                 // New Note here creates a plain note the filter excludes, so
                 // it would look like the note vanished. Offer no action.
                 Text(model.sidebarSelection == .meetings ? "No meetings yet." : "Nothing here yet.")
-                    .font(.system(size: 13))
+                    .font(TokenFont.interface)
                     .foregroundStyle(TokenColor.secondary)
             } else {
                 VStack(spacing: 12) {
                     Text("No notes yet.")
-                        .font(.system(size: 13))
+                        .font(TokenFont.interface)
                         .foregroundStyle(TokenColor.secondary)
                     Button("New Note") { Task { await model.newNote() } }
                 }
@@ -139,7 +138,7 @@ private struct NoteRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(note.metadata.title.isEmpty ? "Untitled" : note.metadata.title)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(TokenFont.rowTitle)
                     .foregroundStyle(TokenColor.fg)
                     .lineLimit(1)
                 Spacer(minLength: 8)
@@ -148,12 +147,12 @@ private struct NoteRow: View {
                         .accessibilityLabel("Recording")
                 }
                 Text(NoteGrouping.rowDateLabel(for: note.metadata.updated, now: Date(), calendar: .current))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(TokenFont.metadata)
                     .foregroundStyle(TokenColor.faint)
             }
             if !note.snippet.isEmpty {
                 Text(note.snippet)
-                    .font(.system(size: 12))
+                    .font(TokenFont.supporting)
                     .foregroundStyle(TokenColor.secondary)
                     .lineLimit(1)
             }
@@ -169,8 +168,8 @@ private struct NoteRow: View {
         // Cmd+N inserts a note at the top), so the previously hovered row would
         // keep its hover fill and read as a phantom second selection.
         .onChange(of: model.selectedPath) { hovering = false }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: selected)
+        .animation(reduceMotion ? nil : TokenMotion.micro, value: hovering)
+        .animation(reduceMotion ? nil : TokenMotion.micro, value: selected)
         .contextMenu {
             Button(isPinned ? "Unpin" : "Pin") {
                 Task { await model.togglePin(note.relativePath) }

@@ -70,6 +70,25 @@ public actor NotesStore {
         return note
     }
 
+    public func updateDraft(
+        _ relativePath: String,
+        title: String,
+        body: String,
+        now: Date = .now
+    ) throws -> Note {
+        guard !unparseablePaths.contains(relativePath) else {
+            throw NotesStoreError.refusingToRewriteUnparseable
+        }
+        guard var note = cache[relativePath] else {
+            throw NotesStoreError.noteNotFound(relativePath)
+        }
+        note.metadata.title = title
+        note.body = body
+        note.metadata.updated = now
+        try write(note)
+        return note
+    }
+
     /// Moves the note's file to the macOS Trash (recoverable) and evicts it from
     /// the cache. Files-are-truth: the note leaves the vault. A missing file is a
     /// no-op evict rather than an error.

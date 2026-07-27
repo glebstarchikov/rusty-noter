@@ -48,7 +48,7 @@ struct SidebarView: View {
             // Mono is "the texture of the system" (design.md); lowercase, quiet.
             HStack {
                 Text("rusty noter")
-                    .font(.system(size: 16, weight: .medium, design: .monospaced))
+                    .font(TokenFont.wordmark)
                     .tracking(-0.3)
                     .foregroundStyle(TokenColor.fg)
                 Spacer(minLength: 0)
@@ -61,7 +61,7 @@ struct SidebarView: View {
 
     private func sectionLabel(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 11, design: .monospaced))
+            .font(TokenFont.metadata)
             .foregroundStyle(TokenColor.faint)
             .padding(.top, 12)
             .padding(.bottom, 4)
@@ -85,11 +85,11 @@ private struct SidebarRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
-                .font(.system(size: 13))
+                .font(TokenFont.interface)
                 .foregroundStyle(selected ? TokenColor.accent : TokenColor.secondary)
                 .frame(width: 18)
             Text(title)
-                .font(.system(size: 13))
+                .font(TokenFont.interface)
                 .foregroundStyle(TokenColor.fg)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -103,8 +103,8 @@ private struct SidebarRow: View {
         .onHover { hovering = $0 }
         // Mirror NoteRow: clear a stranded hover when selection moves.
         .onChange(of: selected) { _, nowSelected in if !nowSelected { hovering = false } }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: selected)
+        .animation(reduceMotion ? nil : TokenMotion.micro, value: hovering)
+        .animation(reduceMotion ? nil : TokenMotion.micro, value: selected)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }

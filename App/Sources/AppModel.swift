@@ -23,6 +23,13 @@ final class AppModel {
     private(set) var coordinator: VaultCoordinator?
     private(set) var isSwitchingVault = false
 
+    /// Set by the editor while it is on screen. Saves are debounced, so quitting
+    /// within the debounce window would drop the last edit — the app delegate
+    /// calls this on termination and waits for the returned task. Not observable:
+    /// registering it must not invalidate views.
+    @ObservationIgnored
+    var flushPendingEdits: (@MainActor () -> Task<Void, Never>?)?
+
     static let vaultPathKey = "vaultPath"
 
     var vaultURL: URL {
@@ -73,6 +80,21 @@ final class AppModel {
         })).sorted()
     }
 
+    func togglePalette() {
+        setPaletteShown(!paletteShown)
+    }
+
+    func setPaletteShown(_ shown: Bool) {
+        guard paletteShown != shown else { return }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            paletteShown = shown
+        } else {
+            withAnimation(TokenMotion.presentation) {
+                paletteShown = shown
+            }
+        }
+    }
+
     private func activate(_ coordinator: VaultCoordinator) async {
         self.coordinator = coordinator
         self.notes = await coordinator.start()
@@ -92,7 +114,7 @@ final class AppModel {
                     != Set(self.notes.filter { $0.metadata.pinned }.map(\.relativePath))
                 if membershipChanged || pinnedChanged,
                    !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-                    withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: 0.45)) {
+                    withAnimation(TokenMotion.structural) {
                         self.notes = snapshot
                     }
                 } else {
@@ -179,7 +201,7 @@ final class AppModel {
     func togglePin(_ path: String) async {
         guard let coordinator,
               let note = notes.first(where: { $0.relativePath == path }) else { return }
-        try? await coordinator.setPinned(path, pinned: !note.metadata.pinned)
+        _ = try? await coordinator.setPinned(path, pinned: !note.metadata.pinned)
     }
 
     func select(_ path: String?) { selectedPath = path }

@@ -1,9 +1,29 @@
 import SwiftUI
 import NoterCore
 
+/// Defers termination until the editor's debounced save has actually landed.
+/// `willTerminate` is too late to await async work, so this is the only hook
+/// that can keep the process alive for the write.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    @MainActor weak var model: AppModel?
+
+    @MainActor
+    func applicationShouldTerminate(
+        _ sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        guard let task = model?.flushPendingEdits?() else { return .terminateNow }
+        Task {
+            await task.value
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+}
+
 @main
 struct RustyNoterApp: App {
     @State private var model = AppModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         WindowGroup {
@@ -15,7 +35,10 @@ struct RustyNoterApp: App {
                 }
             }
             .frame(minWidth: 960, minHeight: 600)
-            .task { await model.bootstrap() }
+            .task {
+                appDelegate.model = model
+                await model.bootstrap()
+            }
         }
         .environment(model)
         .commands {
@@ -24,7 +47,7 @@ struct RustyNoterApp: App {
                     .keyboardShortcut("n", modifiers: .command)
             }
             CommandGroup(after: .toolbar) {
-                Button("Command Palette") { model.paletteShown.toggle() }
+                Button("Command Palette") { model.togglePalette() }
                     .keyboardShortcut("k", modifiers: .command)
             }
         }
@@ -38,6 +61,19 @@ struct RustyNoterApp: App {
 struct MainSplitView: View {
     @Environment(AppModel.self) private var model
 
+    private var collectionTitle: String {
+        switch model.sidebarSelection {
+        case .all:
+            "All Notes"
+        case .meetings:
+            "Meetings"
+        case .tag(let tag):
+            tag
+        case .folder(let folder):
+            folder
+        }
+    }
+
     var body: some View {
         @Bindable var model = model
         ZStack(alignment: .top) {
@@ -47,28 +83,29 @@ struct MainSplitView: View {
             } content: {
                 NoteListView()
                     .navigationSplitViewColumnWidth(min: 240, ideal: 290)
-                    .searchable(text: $model.searchQuery, placement: .toolbar,
-                                prompt: "Search notes")
-                    .onChange(of: model.searchQuery) {
-                        Task { await model.runSearch() }
-                    }
+                    .navigationTitle(collectionTitle)
             } detail: {
                 if let path = model.selectedPath,
-                   let note = model.notes.first(where: { $0.relativePath == path }) {
-                    EditorContainerView(note: note)
+                   let note = model.notes.first(where: { $0.relativePath == path }),
+                   let coordinator = model.coordinator {
+                    EditorContainerView(note: note, coordinator: coordinator)
                 } else {
                     Text("Select a note.")
-                        .font(.system(size: 13))
+                        .font(TokenFont.interface)
                         .foregroundStyle(TokenColor.secondary)
                 }
             }
             .background(TokenColor.bg)
-            // Drop the redundant system window title ("Rusty Noter") from the
-            // content column; the crafted mono wordmark in the sidebar is now the
-            // app identity. Visual-only — accessibility + Window menu keep it.
-            .toolbar(removing: .title)
+            // Keep the toolbar under one owner. A column-scoped search field
+            // merged with split-view toolbar items can be relaid out when the
+            // window changes presentation.
+            .searchable(text: $model.searchQuery, placement: .toolbar,
+                        prompt: "Search notes")
+            .onChange(of: model.searchQuery) {
+                Task { await model.runSearch() }
+            }
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItem(placement: .navigation) {
                     Button {
                         Task { await model.newNote() }
                     } label: {
@@ -77,10 +114,12 @@ struct MainSplitView: View {
                     .help("New Note (Cmd+N)")
                 }
             }
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+            .windowToolbarFullScreenVisibility(.visible)
             if model.paletteShown {
                 Color.black.opacity(0.001) // click-away catcher
                     .ignoresSafeArea()
-                    .onTapGesture { model.paletteShown = false }
+                    .onTapGesture { model.setPaletteShown(false) }
                 CommandPaletteView()
                     .padding(.top, 120)
                     .transition(.opacity)

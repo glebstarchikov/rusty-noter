@@ -6,7 +6,7 @@ struct WelcomeView: View {
     var body: some View {
         VStack(spacing: 16) {
             Text("Rusty Noter keeps your notes as plain markdown files in a folder you own.")
-                .font(.system(size: 13))
+                .font(TokenFont.interface)
                 .foregroundStyle(TokenColor.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)

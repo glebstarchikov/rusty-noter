@@ -6,32 +6,37 @@ struct EditorContainerView: View {
     @Environment(AppModel.self) private var model
     let note: Note
 
-    @State private var draftBody: String = ""
-    @State private var draftTitle: String = ""
-    @State private var lastLoadedPath: String?
-    @State private var lastSavedBody: String = ""
-    @State private var lastSavedTitle: String = ""
+    @State private var draft: EditorDraftSession
     @State private var changedOnDisk = false
-    @State private var saveTask: Task<Void, Never>?
 
-    private var isDirty: Bool {
-        draftBody != lastSavedBody || draftTitle != lastSavedTitle
+    init(note: Note, coordinator: VaultCoordinator) {
+        self.note = note
+        _draft = State(initialValue: EditorDraftSession { snapshot in
+            _ = try await coordinator.updateDraft(
+                snapshot.path,
+                title: snapshot.title,
+                body: snapshot.body)
+        })
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Title", text: $draftTitle)
+            TextField("Title", text: titleBinding)
                 .textFieldStyle(.plain)
-                .font(.system(size: 26, weight: .semibold))
+                .font(TokenFont.editorTitle)
                 .tracking(-0.5) // -0.02em at 26pt, design.md display-size rule
                 .foregroundStyle(TokenColor.fg)
                 .padding(.horizontal, 48)
                 .padding(.top, 32)
-                .onSubmit { commitTitle() }
+                .onSubmit { draft.flush() }
 
             metadataSpine
                 .padding(.horizontal, 48)
                 .padding(.top, 8)
+
+            if let failure = draft.failure {
+                saveFailureBanner(failure)
+            }
 
             if changedOnDisk {
                 HStack(spacing: 8) {
@@ -39,27 +44,48 @@ struct EditorContainerView: View {
                         .foregroundStyle(TokenColor.secondary)
                     Button("Reload") { reloadFromModel() }
                 }
-                .font(.system(size: 12))
+                .font(TokenFont.supporting)
                 .padding(8)
                 .background(TokenColor.accentSoft)
             }
 
-            MarkdownTextView(text: $draftBody, theme: .standard()) { newBody in
-                scheduleSave(newBody)
-            }
+            MarkdownTextView(text: bodyBinding, theme: .standard()) { _ in }
         }
         .background(TokenColor.bg)
-        .onAppear { loadNote() }
-        .onChange(of: note.relativePath) { loadNote() }
+        .onAppear {
+            draft.load(note)
+            // Let the app flush this editor's debounced edits before quitting.
+            model.flushPendingEdits = { [draft] in draft.flush() }
+        }
+        .onDisappear {
+            model.flushPendingEdits = nil
+            draft.flush()
+        }
+        .onChange(of: note.relativePath) {
+            draft.load(note)
+            changedOnDisk = false
+        }
         .onChange(of: note) {
             // A fresh snapshot for the note we're editing arrived from the
             // coordinator (external edit or our own echo). Compare every field,
             // not just body, so a title-only external change is also caught.
-            guard note.relativePath == lastLoadedPath else { return }
-            if note.body != draftBody || note.metadata.title != draftTitle {
-                if isDirty { changedOnDisk = true } else { reloadFromModel() }
+            guard note.relativePath == draft.path else { return }
+            if note.body != draft.body || note.metadata.title != draft.title {
+                if draft.isDirty { changedOnDisk = true } else { reloadFromModel() }
             }
         }
+    }
+
+    private var titleBinding: Binding<String> {
+        Binding(
+            get: { draft.title },
+            set: { draft.updateTitle($0) })
+    }
+
+    private var bodyBinding: Binding<String> {
+        Binding(
+            get: { draft.body },
+            set: { draft.updateBody($0) })
     }
 
     private var metadataSpine: some View {
@@ -71,57 +97,31 @@ struct EditorContainerView: View {
                     .lineLimit(1)
             }
             Text("·")
-            Text("\(WordCount.count(of: draftBody)) words")
+            Text("\(WordCount.count(of: draft.body)) words")
         }
-        .font(.system(size: 11, design: .monospaced))
+        .font(TokenFont.metadata)
         .foregroundStyle(TokenColor.faint)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func loadNote() {
-        saveTask?.cancel()
-        draftBody = note.body
-        draftTitle = note.metadata.title
-        lastSavedBody = note.body
-        lastSavedTitle = note.metadata.title
-        lastLoadedPath = note.relativePath
-        changedOnDisk = false
+    private func saveFailureBanner(
+        _ failure: EditorDraftSession.SaveFailure
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(failure.draft.path == draft.path
+                 ? "Couldn’t save changes."
+                 : "Couldn’t save “\(failure.draft.title)”.")
+                .foregroundStyle(TokenColor.secondary)
+            Spacer(minLength: 8)
+            Button("Retry") { draft.retryFailedSave() }
+        }
+        .font(TokenFont.supporting)
+        .padding(8)
+        .background(TokenColor.accentSoft)
     }
 
     private func reloadFromModel() {
-        saveTask?.cancel()
-        draftBody = note.body
-        draftTitle = note.metadata.title
-        lastSavedBody = note.body
-        lastSavedTitle = note.metadata.title
+        draft.reload(note)
         changedOnDisk = false
-    }
-
-    private func scheduleSave(_ body: String) {
-        saveTask?.cancel()
-        let path = note.relativePath
-        saveTask = Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            if let saved = try? await model.coordinator?.updateBody(path, body: body) {
-                // Guard against an A->B switch leaving A's debounced save in
-                // flight: its completion must not clobber B's dirty bookkeeping.
-                // The write to A's own file is correct and intended; only the
-                // lastSaved bookkeeping is note-specific.
-                guard path == lastLoadedPath else { return }
-                lastSavedBody = saved.body
-            }
-        }
-    }
-
-    private func commitTitle() {
-        let path = note.relativePath
-        let title = draftTitle
-        Task {
-            if let saved = try? await model.coordinator?.updateTitle(path, title: title) {
-                guard path == lastLoadedPath else { return }
-                lastSavedTitle = saved.metadata.title
-            }
-        }
     }
 }

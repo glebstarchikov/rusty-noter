@@ -26,11 +26,15 @@ struct CommandPaletteView: View {
         return result
     }
 
+    private var resultsHeight: CGFloat {
+        min(CGFloat(rows.count) * 32, 320)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             TextField("Jump to note or run a command", text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 15))
+                .font(TokenFont.commandInput)
                 .padding(14)
                 .focused($fieldFocused)
                 .onSubmit { activate(rows[min(highlighted, rows.count - 1)]) }
@@ -44,13 +48,13 @@ struct CommandPaletteView: View {
                     }
                 }
             }
-            .frame(maxHeight: 320)
+            .frame(height: resultsHeight)
         }
         .frame(width: 560)
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
         .onAppear { fieldFocused = true }
         .onChange(of: query) { highlighted = 0 }
-        .onExitCommand { model.paletteShown = false }
+        .onExitCommand { model.setPaletteShown(false) }
         .onMoveCommand { direction in
             switch direction {
             case .down: highlighted = min(highlighted + 1, rows.count - 1)
@@ -66,19 +70,19 @@ struct CommandPaletteView: View {
             switch row {
             case .note(let note):
                 Text(note.metadata.title.isEmpty ? "Untitled" : note.metadata.title)
-                    .font(.system(size: 13))
+                    .font(TokenFont.interface)
                     .foregroundStyle(TokenColor.fg)
                 Spacer()
                 Text(Slug.dayString(note.metadata.updated))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(TokenFont.metadata)
                     .foregroundStyle(TokenColor.faint)
             case .newNote:
                 Label("New Note", systemImage: "square.and.pencil")
-                    .font(.system(size: 13))
+                    .font(TokenFont.interface)
                     .foregroundStyle(TokenColor.fg)
                 Spacer()
                 Text("Cmd N")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(TokenFont.metadata)
                     .foregroundStyle(TokenColor.faint)
             }
         }
@@ -92,6 +96,6 @@ struct CommandPaletteView: View {
         case .note(let note): model.select(note.relativePath)
         case .newNote: Task { await model.newNote() }
         }
-        model.paletteShown = false
+        model.setPaletteShown(false)
     }
 }

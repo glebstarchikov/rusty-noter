@@ -44,12 +44,17 @@ import Foundation
         let note = try await coordinator.createNote(title: "Mine")
         #expect(await coordinator.search("mine") == [note.relativePath])
 
-        _ = try await coordinator.updateBody(note.relativePath, body: "hello searchable body\n")
+        _ = try await coordinator.updateDraft(
+            note.relativePath,
+            title: "Renamed draft",
+            body: "hello searchable body\n")
         #expect(await coordinator.search("searchable") == [note.relativePath])
+        #expect(await coordinator.search("renamed") == [note.relativePath])
 
         // Let any echo batch flow through; state must remain consistent.
         try await Task.sleep(for: .seconds(1))
         let cached = await coordinator.note(at: note.relativePath)
+        #expect(cached?.metadata.title == "Renamed draft")
         #expect(cached?.body == "hello searchable body\n")
         await coordinator.stop()
     }

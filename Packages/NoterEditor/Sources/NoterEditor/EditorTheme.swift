@@ -43,7 +43,7 @@ public struct EditorTheme: @unchecked Sendable {
             bodyFont: body,
             boldFont: NSFont.systemFont(ofSize: 16, weight: .semibold),
             italicFont: italic,
-            monoFont: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
+            monoFont: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
             headingFonts: [
                 1: NSFont.systemFont(ofSize: 22, weight: .semibold),
                 2: NSFont.systemFont(ofSize: 19, weight: .semibold),

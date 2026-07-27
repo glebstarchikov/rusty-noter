@@ -44,6 +44,30 @@ import Foundation
         #expect(reparsed.body == "new body\n")
     }
 
+    @Test func updateDraftPersistsTitleAndBodyInOneRevision() async throws {
+        let vault = try makeTempVault()
+        let store = NotesStore(vault: vault)
+        _ = await store.loadAll()
+        let created = Date.iso8601Local("2026-07-13T10:00:00+02:00")!
+        let later = Date.iso8601Local("2026-07-13T11:00:00+02:00")!
+        let note = try await store.create(title: "Original", now: created)
+
+        let updated = try await store.updateDraft(
+            note.relativePath,
+            title: "Combined draft",
+            body: "title and body land together\n",
+            now: later)
+
+        #expect(updated.metadata.title == "Combined draft")
+        #expect(updated.body == "title and body land together\n")
+        #expect(updated.metadata.updated == later)
+        let reparsed = try FrontmatterCodec.parse(
+            try String(contentsOf: vault.noteURL(note.relativePath), encoding: .utf8))
+        #expect(reparsed.metadata.title == "Combined draft")
+        #expect(reparsed.body == "title and body land together\n")
+        #expect(reparsed.metadata.updated == later)
+    }
+
     @Test func loadAllParsesGoodAndSalvagesBroken() async throws {
         let vault = try makeTempVault()
         try writeFile(vault, "good.md", sampleRaw(title: "Good"))
@@ -96,7 +120,7 @@ import Foundation
         #expect(await !store.isSelfWriteEcho("other.md"))
         // An EXTERNAL write of DIFFERENT content to the same path is NOT an echo,
         // even immediately (content differs), so it will be processed.
-        try await store.updateBody(note.relativePath, body: "ours\n")
+        _ = try await store.updateBody(note.relativePath, body: "ours\n")
         try writeFile(vault, note.relativePath, sampleRaw(title: "Echo", body: "theirs\n"))
         #expect(await !store.isSelfWriteEcho(note.relativePath))
     }
