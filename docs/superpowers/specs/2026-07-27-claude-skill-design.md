@@ -156,10 +156,17 @@ Settings gains a **Claude Skill** section with three states:
 | Installed | The vault path the skill points at | Remove |
 | Update available | Content or path differs from what the app would write | Update, Remove |
 
-**Sync on vault move.** `AppModel.setVault` rewrites `SKILL.md` — but only when
-the skill is already installed. Installing uninvited because the user changed a
-folder is overreach; leaving a stale path after they opted in is worse, since
-the skill would confidently point at a vault that no longer exists.
+**Sync on vault move and on launch.** `AppModel.setVault` rewrites `SKILL.md`,
+and so does `bootstrap()` — but only when the skill is already installed.
+Installing uninvited because the user changed a folder is overreach; leaving a
+stale skill after they opted in is worse.
+
+Launch-time healing was added after implementation showed the gap: a genuine
+correctness fix to the recipes did not reach the installed skill, which sat
+stale until the user happened to open Settings and notice the badge. The vault's
+`CLAUDE.md` already regenerates on launch; the skill is the same kind of
+generated artifact and behaves the same way. The Settings state remains for
+visibility, but nothing depends on the user seeing it.
 
 **Removal** deletes `~/.claude/skills/rusty-noter/`. Anything written into the
 user's `~/.claude` must be removable from the same screen that put it there.
