@@ -6,3 +6,5 @@ DerivedData/
 .swiftpm/
 .superpowers/
 build/
+
+.claude/gate-last-run.log
