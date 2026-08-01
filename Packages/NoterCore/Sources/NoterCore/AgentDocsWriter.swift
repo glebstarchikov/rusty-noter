@@ -73,7 +73,12 @@ public enum AgentDocsWriter {
 
         ## Find content
 
-        Prefer ripgrep. Useful recipes:
+        Prefer ripgrep, but note it matches one line at a time and note bodies
+        are hard-wrapped: a phrase straddling a line break silently returns
+        nothing. Search a single distinctive word and read the note, and never
+        conclude a note does not exist from a failed multi-word search.
+
+        Useful recipes:
 
         ~~~bash
         # notes mentioning a word

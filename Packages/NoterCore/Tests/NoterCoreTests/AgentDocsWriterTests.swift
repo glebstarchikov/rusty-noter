@@ -77,6 +77,18 @@ import Foundation
         }
     }
 
+    /// Bodies are hard-wrapped and ripgrep matches per line, so a phrase
+    /// spanning a line break returns nothing at all. Without this warning an
+    /// agent reports "no such note" instead of searching a single word.
+    @Test func bothDocsWarnThatPhraseSearchesMissAcrossLineBreaks() {
+        let vaultPath = "/Users/gleb/Notes"
+        for doc in [AgentDocsWriter.render(vaultPath: vaultPath),
+                    AgentDocsWriter.renderSkill(vaultPath: vaultPath)] {
+            #expect(doc.contains("hard-wrapped"))
+            #expect(doc.contains("single distinctive word"))
+        }
+    }
+
     @Test func skillCarriesFrontmatterAndTriggerLanguage() {
         let skill = AgentDocsWriter.renderSkill(vaultPath: "/Users/gleb/Notes")
         #expect(skill.hasPrefix("---\n"))
