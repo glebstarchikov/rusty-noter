@@ -8,3 +8,5 @@ DerivedData/
 build/
 
 .claude/gate-last-run.log
+
+.env*
