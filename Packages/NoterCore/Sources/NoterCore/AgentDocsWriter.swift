@@ -77,7 +77,7 @@ public enum AgentDocsWriter {
 
         ~~~bash
         # notes mentioning a word
-        rg -il "pricing" --glob "*.md"\(scope)
+        rg -il "pricing" --glob "*.md" \(excludes)\(scope)
         # notes with a tag
         rg -l "^tags: .*standup" --glob "*.md" \(excludes)\(scope)
         # all meeting notes

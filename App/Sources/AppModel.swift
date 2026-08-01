@@ -165,9 +165,13 @@ final class AppModel {
     }
 
     func bootstrap() async {
-        // Refreshed before the welcome guard: Settings is reachable with Cmd+,
-        // even when no vault is configured yet, and must not show a stale state.
-        refreshSkillStatus()
+        // Heal a stale skill on launch, the same way the vault's CLAUDE.md is
+        // regenerated: an app update that corrects the conventions must reach an
+        // installed skill without the user noticing a badge in Settings. Runs
+        // before the welcome guard because Settings is reachable with Cmd+, even
+        // with no vault configured. Never installs uninvited -- sync() acts only
+        // on an already-installed, stale skill.
+        syncSkill()
         guard FileManager.default.fileExists(atPath: vaultURL.path) else {
             needsWelcome = true
             return

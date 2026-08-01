@@ -53,6 +53,30 @@ import Foundation
         }
     }
 
+    /// The generated docs embed the example search terms in their own recipe
+    /// block, so an unexcluded recipe reports them as hits. Found by running
+    /// the recipes against a vault holding no notes at all: `rg -il "pricing"`
+    /// returned CLAUDE.md and AGENTS.md. Every recipe must exclude them, not
+    /// just the frontmatter-field ones.
+    @Test func everyRecipeExcludesTheGeneratedDocs() {
+        let vaultPath = "/Users/gleb/Notes"
+        for doc in [AgentDocsWriter.render(vaultPath: vaultPath),
+                    AgentDocsWriter.renderSkill(vaultPath: vaultPath)] {
+            let recipes = doc
+                .split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { $0.hasPrefix("rg ") }
+
+            #expect(!recipes.isEmpty)
+            for recipe in recipes {
+                for generated in ["'!INDEX.md'", "'!CLAUDE.md'", "'!AGENTS.md'"] {
+                    #expect(recipe.contains(generated),
+                            "recipe would match the generated docs themselves: \(recipe)")
+                }
+            }
+        }
+    }
+
     @Test func skillCarriesFrontmatterAndTriggerLanguage() {
         let skill = AgentDocsWriter.renderSkill(vaultPath: "/Users/gleb/Notes")
         #expect(skill.hasPrefix("---\n"))
