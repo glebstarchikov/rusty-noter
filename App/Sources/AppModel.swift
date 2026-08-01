@@ -22,6 +22,8 @@ final class AppModel {
 
     private(set) var coordinator: VaultCoordinator?
     private(set) var isSwitchingVault = false
+    private(set) var skillStatus: SkillInstaller.Status = .notInstalled
+    private(set) var skillError: String?
 
     /// Set by the editor while it is on screen. Saves are debounced, so quitting
     /// within the debounce window would drop the last edit — the app delegate
@@ -80,6 +82,43 @@ final class AppModel {
         })).sorted()
     }
 
+    func refreshSkillStatus() {
+        skillStatus = SkillInstaller().status(vaultPath: vaultURL.path)
+    }
+
+    func installSkill() {
+        do {
+            try SkillInstaller().install(vaultPath: vaultURL.path)
+            skillError = nil
+        } catch {
+            // Surfaced in Settings: an install that silently does nothing
+            // leaves the user wondering why Claude can't find their notes.
+            skillError = error.localizedDescription
+        }
+        refreshSkillStatus()
+    }
+
+    func removeSkill() {
+        do {
+            try SkillInstaller().remove()
+            skillError = nil
+        } catch {
+            skillError = error.localizedDescription
+        }
+        refreshSkillStatus()
+    }
+
+    /// Keeps an installed skill pointing at the current vault after a move.
+    private func syncSkill() {
+        do {
+            try SkillInstaller().sync(vaultPath: vaultURL.path)
+            skillError = nil
+        } catch {
+            skillError = error.localizedDescription
+        }
+        refreshSkillStatus()
+    }
+
     func togglePalette() {
         setPaletteShown(!paletteShown)
     }
@@ -126,6 +165,9 @@ final class AppModel {
     }
 
     func bootstrap() async {
+        // Refreshed before the welcome guard: Settings is reachable with Cmd+,
+        // even when no vault is configured yet, and must not show a stale state.
+        refreshSkillStatus()
         guard FileManager.default.fileExists(atPath: vaultURL.path) else {
             needsWelcome = true
             return
@@ -163,6 +205,7 @@ final class AppModel {
         searchHits = nil
         searchQuery = ""
         await bootstrap()
+        syncSkill()
     }
 
     @MainActor

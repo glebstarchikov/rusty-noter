@@ -24,8 +24,43 @@ struct SettingsView: View {
                     .font(TokenFont.finePrint)
                     .foregroundStyle(TokenColor.faint)
             }
+            Section("Claude Skill") {
+                LabeledContent("Status") {
+                    Text(skillStatusText)
+                        .font(TokenFont.supporting)
+                        .foregroundStyle(TokenColor.secondary)
+                }
+                HStack(spacing: 8) {
+                    switch model.skillStatus {
+                    case .notInstalled:
+                        Button("Install") { model.installSkill() }
+                    case .current:
+                        Button("Remove", role: .destructive) { model.removeSkill() }
+                    case .stale:
+                        Button("Update") { model.installSkill() }
+                        Button("Remove", role: .destructive) { model.removeSkill() }
+                    }
+                }
+                if let error = model.skillError {
+                    Text(error)
+                        .font(TokenFont.finePrint)
+                        .foregroundStyle(TokenColor.danger)
+                }
+                Text("Installs a skill at ~/.claude/skills/rusty-noter so Claude can find and write your notes from any session, not just inside the vault folder.")
+                    .font(TokenFont.finePrint)
+                    .foregroundStyle(TokenColor.faint)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 480)
+        .onAppear { model.refreshSkillStatus() }
+    }
+
+    private var skillStatusText: String {
+        switch model.skillStatus {
+        case .notInstalled: "Not installed"
+        case .current: "Installed · \(model.vaultPathDisplay)"
+        case .stale: "Update available"
+        }
     }
 }
