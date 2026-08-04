@@ -140,15 +140,21 @@ to treat as read-only and re-read for fresh content.
 **At stop:** finalize the m4a, write `audio:` (vault-relative) and `duration:`,
 remove `status`. The watcher republishes and the note appears like any other.
 
-### 5.1 Two exclusions this introduces
+### 5.1 Exclusions — already satisfied, and worth a regression test
 
-Both are deliberate changes in `NoterCore`, not incidental:
+Design review assumed two changes were needed here. Reading the Phase 1 code
+shows both are already handled, so **no change is required**:
 
-1. **`AppModel.topLevelFolders` derives from any note path containing `/`**, so
-   an `audio/` directory would appear as a folder in the sidebar. Audio paths
-   must be excluded.
-2. **The FTS indexer and note store walk the vault** and must ignore `.m4a`
-   files and the `audio/` directory entirely. They are not notes.
+1. `Vault.isNotePath` begins `guard relativePath.hasSuffix(".md")`, so `.m4a`
+   files are never enumerated, parsed, or indexed.
+2. `AppModel.topLevelFolders` derives folders only from `notes`, which contains
+   only `.md` files. An `audio/` directory holding no notes yields no sidebar
+   folder.
+
+Both are load-bearing but incidental — a future change to `isNotePath` could
+break them silently, and the symptom (`.m4a` files in search results, a stray
+Audio folder in the sidebar) would look unrelated to the change that caused it.
+They therefore get explicit regression tests rather than implementation work.
 
 ## 6. Permissions
 
