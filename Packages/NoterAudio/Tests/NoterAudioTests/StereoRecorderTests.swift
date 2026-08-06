@@ -64,6 +64,18 @@ import Testing
         #expect(aligner.drain(upTo: 2) == [])
     }
 
+    /// Stopping mid-cadence must not discard the last buffered audio, and must
+    /// not be expressed as drain(upTo: .max) -- that sizes its output from
+    /// hostTime minus cursor and would try to allocate billions of frames.
+    @Test func drainRemainingFlushesTheTailWithoutASentinel() {
+        let aligner = StereoAligner(sampleRate: 48_000, framesPerSecond: 48_000)
+        aligner.append(chunk(at: 0, values: [1, 2, 3]), from: .microphone)
+        aligner.append(chunk(at: 0, values: [-1, -2]), from: .system)
+
+        #expect(aligner.drainRemaining() == [1, -1, 2, -2, 3, 0])
+        #expect(aligner.drainRemaining() == [])
+    }
+
     /// A source that goes quiet mid-recording and returns must resume at its
     /// true position, with the gap padded rather than closed up.
     @Test func gapInOneSourceIsPaddedNotClosed() {

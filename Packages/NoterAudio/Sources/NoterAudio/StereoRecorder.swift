@@ -24,7 +24,10 @@ public enum ChannelSource: Sendable {
 /// source that has not delivered is padded with silence rather than waited for.
 /// Waiting would shift one channel relative to the other, and a shift
 /// desynchronises the Me:/Them: labelling for the remainder of the recording.
-public final class StereoAligner {
+/// `@unchecked Sendable` is earned, not assumed: every mutable field is guarded
+/// by `lock`, and the two capture callbacks that feed this run on different
+/// threads by design.
+public final class StereoAligner: @unchecked Sendable {
     /// Contiguous samples plus the frame index of `samples[0]`.
     ///
     /// Deliberately an array, not a dictionary keyed by frame: at 48 kHz stereo
@@ -110,6 +113,21 @@ public final class StereoAligner {
         Self.consume(&system, upTo: hostTime)
         cursor = hostTime
         return frames
+    }
+
+    /// Drains everything still buffered, for use at stop.
+    ///
+    /// Callers must never pass a sentinel like `.max` to `drain(upTo:)`: it
+    /// sizes its output from `hostTime - cursor` and would try to allocate
+    /// billions of frames.
+    public func drainRemaining() -> [Float] {
+        lock.lock()
+        let end = max(
+            microphone.baseFrame + UInt64(microphone.samples.count),
+            system.baseFrame + UInt64(system.samples.count))
+        lock.unlock()
+        guard end > cursor else { return [] }
+        return drain(upTo: end)
     }
 
     private static func fill(_ frames: inout [Float], from channel: Channel,
