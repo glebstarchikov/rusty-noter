@@ -70,6 +70,42 @@ public actor NotesStore {
         return note
     }
 
+    /// Creates the meeting note at recording start. `status: recording` is the
+    /// crash-recovery marker, the append target for the live transcript, and the
+    /// signal the Claude skill reads as "read-only, re-read for fresh content".
+    public func startMeeting(title: String, now: Date = .now) throws -> Note {
+        let existing = Set((try? vault.enumerateNoteFiles()) ?? []).union(cache.keys)
+        let filename = Slug.uniqueFilename(date: now, title: title, existing: existing)
+        var metadata = NoteMetadata(title: title, created: now, updated: now)
+        metadata.type = .meeting
+        metadata.status = .recording
+        let note = Note(relativePath: filename, metadata: metadata, body: "")
+        try write(note)
+        return note
+    }
+
+    /// Finalizes the note when recording stops: attach the audio, record the
+    /// duration, and clear the recording marker.
+    public func finishMeeting(
+        _ relativePath: String,
+        audio: String,
+        duration: String,
+        now: Date = .now
+    ) throws -> Note {
+        guard !unparseablePaths.contains(relativePath) else {
+            throw NotesStoreError.refusingToRewriteUnparseable
+        }
+        guard var note = cache[relativePath] else {
+            throw NotesStoreError.noteNotFound(relativePath)
+        }
+        note.metadata.audio = audio
+        note.metadata.duration = duration
+        note.metadata.status = nil
+        note.metadata.updated = now
+        try write(note)
+        return note
+    }
+
     public func updateDraft(
         _ relativePath: String,
         title: String,

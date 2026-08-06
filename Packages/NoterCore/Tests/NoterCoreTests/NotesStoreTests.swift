@@ -44,6 +44,71 @@ import Foundation
         #expect(reparsed.body == "new body\n")
     }
 
+    @Test func startMeetingCreatesARecordingNote() async throws {
+        let vault = try makeTempVault()
+        let store = NotesStore(vault: vault)
+        _ = await store.loadAll()
+        let now = Date.iso8601Local("2026-08-02T14:30:00+02:00")!
+
+        let note = try await store.startMeeting(title: "Standup", now: now)
+
+        #expect(note.metadata.type == .meeting)
+        #expect(note.metadata.status == .recording)
+        #expect(note.metadata.audio == nil)
+        // The on-disk file must carry the marker: it is what crash recovery and
+        // the Claude skill both key on.
+        let reparsed = try FrontmatterCodec.parse(
+            try String(contentsOf: vault.noteURL(note.relativePath), encoding: .utf8))
+        #expect(reparsed.metadata.status == .recording)
+        #expect(reparsed.metadata.type == .meeting)
+    }
+
+    @Test func finishMeetingClearsTheRecordingMarkerAndRecordsTheAudio() async throws {
+        let vault = try makeTempVault()
+        let store = NotesStore(vault: vault)
+        _ = await store.loadAll()
+        let start = Date.iso8601Local("2026-08-02T14:30:00+02:00")!
+        let end = Date.iso8601Local("2026-08-02T15:05:00+02:00")!
+        let note = try await store.startMeeting(title: "Standup", now: start)
+
+        let done = try await store.finishMeeting(
+            note.relativePath,
+            audio: "audio/2026-08-02-standup.m4a",
+            duration: "00:35:00",
+            now: end)
+
+        #expect(done.metadata.status == nil)
+        #expect(done.metadata.audio == "audio/2026-08-02-standup.m4a")
+        #expect(done.metadata.duration == "00:35:00")
+        #expect(done.metadata.updated == end)
+        let reparsed = try FrontmatterCodec.parse(
+            try String(contentsOf: vault.noteURL(note.relativePath), encoding: .utf8))
+        #expect(reparsed.metadata.status == nil)
+        #expect(reparsed.metadata.audio == "audio/2026-08-02-standup.m4a")
+    }
+
+    /// A meeting note is still a note: it must be found by enumeration, and the
+    /// audio file next to it must NOT be. Guards the exclusion the whole design
+    /// leans on -- a future change to isNotePath would otherwise break search
+    /// and the sidebar in a way that looks unrelated to its cause.
+    @Test func audioFilesAreNeverTreatedAsNotes() async throws {
+        let vault = try makeTempVault()
+        let store = NotesStore(vault: vault)
+        _ = await store.loadAll()
+        let note = try await store.startMeeting(title: "Standup", now: .now)
+
+        let audioDirectory = vault.root.appendingPathComponent("audio")
+        try FileManager.default.createDirectory(
+            at: audioDirectory, withIntermediateDirectories: true)
+        try Data("not really audio".utf8).write(
+            to: audioDirectory.appendingPathComponent("2026-08-02-standup.m4a"))
+
+        let files = try vault.enumerateNoteFiles()
+        #expect(files.contains(note.relativePath))
+        #expect(!files.contains { $0.hasSuffix(".m4a") })
+        #expect(!vault.isNotePath("audio/2026-08-02-standup.m4a"))
+    }
+
     @Test func updateDraftPersistsTitleAndBodyInOneRevision() async throws {
         let vault = try makeTempVault()
         let store = NotesStore(vault: vault)

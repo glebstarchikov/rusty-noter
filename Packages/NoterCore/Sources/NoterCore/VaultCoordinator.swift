@@ -78,6 +78,27 @@ public actor VaultCoordinator {
         return note
     }
 
+    public func startMeeting(title: String) async throws -> Note {
+        let note = try await store.startMeeting(title: title)
+        try? await index.upsert(note)
+        scheduleIndexMd()
+        await publishSnapshot()
+        return note
+    }
+
+    public func finishMeeting(
+        _ relativePath: String,
+        audio: String,
+        duration: String
+    ) async throws -> Note {
+        let note = try await store.finishMeeting(
+            relativePath, audio: audio, duration: duration)
+        try? await index.upsert(note)
+        scheduleIndexMd()
+        await publishSnapshot()
+        return note
+    }
+
     public func updateDraft(
         _ relativePath: String,
         title: String,
