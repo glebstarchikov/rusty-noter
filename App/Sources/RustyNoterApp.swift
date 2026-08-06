@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct RustyNoterApp: App {
     @State private var model = AppModel()
+    @State private var recording: RecordingController?
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
@@ -31,11 +32,12 @@ struct RustyNoterApp: App {
                 if model.needsWelcome {
                     WelcomeView()
                 } else {
-                    MainSplitView()
+                    MainSplitView(recording: recording)
                 }
             }
             .frame(minWidth: 960, minHeight: 600)
             .task {
+                if recording == nil { recording = RecordingController(model: model) }
                 appDelegate.model = model
                 await model.bootstrap()
             }
@@ -45,6 +47,10 @@ struct RustyNoterApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New Note") { Task { await model.newNote() } }
                     .keyboardShortcut("n", modifiers: .command)
+            }
+            CommandGroup(after: .newItem) {
+                Button("Record Meeting") { recording?.toggle() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
             }
             CommandGroup(after: .toolbar) {
                 Button("Command Palette") { model.togglePalette() }
@@ -60,6 +66,9 @@ struct RustyNoterApp: App {
 
 struct MainSplitView: View {
     @Environment(AppModel.self) private var model
+    /// Owned by the App scene so the ⌘⇧R menu command and this toolbar button
+    /// drive the same session.
+    let recording: RecordingController?
 
     private var collectionTitle: String {
         switch model.sidebarSelection {
@@ -113,6 +122,31 @@ struct MainSplitView: View {
                     }
                     .help("New Note (Cmd+N)")
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        recording?.toggle()
+                    } label: {
+                        if recording?.isRecording == true {
+                            Label(recording?.elapsedText ?? "",
+                                  systemImage: "stop.circle.fill")
+                                .foregroundStyle(TokenColor.danger)
+                        } else {
+                            Label("Record Meeting", systemImage: "record.circle")
+                        }
+                    }
+                    .help("Record Meeting (Cmd+Shift+R)")
+                }
+            }
+            .alert("Can't record",
+                   isPresented: Binding(
+                    get: { recording?.error != nil },
+                    set: { if !$0 { recording?.clearError() } })) {
+                if let blocker = recording?.blockers.first {
+                    Button("Open System Settings") { recording?.openSettings(for: blocker) }
+                }
+                Button("OK", role: .cancel) { recording?.clearError() }
+            } message: {
+                Text(recording?.error ?? "")
             }
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .windowToolbarFullScreenVisibility(.visible)
