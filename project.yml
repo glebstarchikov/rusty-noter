@@ -36,6 +36,8 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         NSHumanReadableCopyright: "© 2026 Gleb Starchikov"
         LSMinimumSystemVersion: "26.0"
+        NSMicrophoneUsageDescription: Rusty Noter records your voice during meetings so it can transcribe them on this Mac.
+        NSAudioCaptureUsageDescription: Rusty Noter records the other participants' audio during meetings so it can transcribe them on this Mac.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: nl.glebstarchikov.RustyNoter

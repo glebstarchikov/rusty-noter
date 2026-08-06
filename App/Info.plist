@@ -26,7 +26,11 @@
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Rusty Noter records the other participants' audio during meetings so it can transcribe them on this Mac.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Gleb Starchikov</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Rusty Noter records your voice during meetings so it can transcribe them on this Mac.</string>
 </dict>
 </plist>
