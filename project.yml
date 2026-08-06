@@ -9,6 +9,8 @@ packages:
     path: Packages/NoterCore
   NoterEditor:
     path: Packages/NoterEditor
+  NoterAudio:
+    path: Packages/NoterAudio
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -25,6 +27,7 @@ targets:
     dependencies:
       - package: NoterCore
       - package: NoterEditor
+      - package: NoterAudio
     info:
       path: App/Info.plist
       properties:
