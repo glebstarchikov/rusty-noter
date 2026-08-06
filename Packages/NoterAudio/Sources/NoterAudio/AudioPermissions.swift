@@ -52,19 +52,23 @@ public struct AudioPermissions: Sendable {
             }
         },
         systemAudio: {
-            // There is no query API for the system-audio grant, and its failure
-            // mode is silence rather than an error, so ask Core Audio whether a
-            // tap can actually be created and immediately destroy it.
-            let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
-            description.isPrivate = true
-            var tapID = AudioObjectID(kAudioObjectUnknown)
-            guard AudioHardwareCreateProcessTap(description, &tapID) == noErr,
-                  tapID != kAudioObjectUnknown else { return .denied }
-            AudioHardwareDestroyProcessTap(tapID)
-            return .granted
+            // macOS 26 files system-audio capture under "Screen & System Audio
+            // Recording", so this is the grant that governs the tap.
+            //
+            // Emphatically NOT probed by creating a tap: tap creation succeeds
+            // without the grant -- the failure is silent zeros -- so that probe
+            // would report granted every time and let recording start deaf.
+            CGPreflightScreenCaptureAccess() ? .granted : .denied
         })
 
     public func requestMicrophone() async -> AudioAuthorization {
         await AVCaptureDevice.requestAccess(for: .audio) ? .granted : .denied
+    }
+
+    /// Triggers the system prompt. Returns the state afterwards; macOS only
+    /// prompts once per app, so a denial afterwards means System Settings.
+    @discardableResult
+    public func requestSystemAudio() -> AudioAuthorization {
+        CGRequestScreenCaptureAccess() ? .granted : .denied
     }
 }

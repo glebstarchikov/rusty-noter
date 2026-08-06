@@ -45,6 +45,9 @@ final class RecordingController {
             if missing.contains(.microphone) {
                 _ = await permissions.requestMicrophone()
             }
+            if missing.contains(.systemAudio) {
+                permissions.requestSystemAudio()
+            }
             if case .blocked(let stillMissing) = permissions.readiness {
                 blockers = stillMissing
                 error = Self.guidance(for: stillMissing)

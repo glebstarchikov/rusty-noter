@@ -96,9 +96,15 @@ public final class RecordingSession {
         try FileManager.default.createDirectory(
             at: audioDestination.deletingLastPathComponent(),
             withIntermediateDirectories: true)
+        // Cleanup runs even if concatenation throws, so a failed stop cannot
+        // leave session directories accumulating in Application Support.
+        defer {
+            if let directory = sessionDirectory {
+                try? FileManager.default.removeItem(at: directory)
+                sessionDirectory = nil
+            }
+        }
         try await SegmentWriter.concatenate(segments, into: audioDestination)
-        if let sessionDirectory { try? FileManager.default.removeItem(at: sessionDirectory) }
-        sessionDirectory = nil
 
         let elapsed = Int(Date().timeIntervalSince(started))
         isRecording = false
